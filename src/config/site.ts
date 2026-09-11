@@ -1,5 +1,6 @@
 // NEXT_PUBLIC_* values are inlined at build time, so each must be read literally.
-const clean = (v: string | undefined, fallback = '') => (v ?? fallback).trim();
+// A blank value (an empty Docker build arg or Railway variable) falls back to the default.
+const clean = (v: string | undefined, fallback = '') => v?.trim() || fallback;
 
 /** Everything a rebrand touches lives here or in personas.ts. */
 export const SITE = {
@@ -12,7 +13,7 @@ export const SITE = {
   defaultBound: clean(process.env.NEXT_PUBLIC_DEFAULT_BOUND),
   // Hero media panel: your own video in public/ (falls back to the illustration if missing).
   heroVideo: clean(process.env.NEXT_PUBLIC_HERO_VIDEO, '/videos/hero.mp4'),
-  heroPoster: clean(process.env.NEXT_PUBLIC_HERO_POSTER),
+  heroPoster: clean(process.env.NEXT_PUBLIC_HERO_POSTER, '/videos/hero-poster.jpg'),
 
   // Study definition
   entryMc: 10_000,

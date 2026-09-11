@@ -14,6 +14,27 @@ export function StatusBadge({ status }: { status: Token['status'] }) {
   return <Badge tone="negative">stalled</Badge>;
 }
 
+/** The token's own logo from DexScreener. Without one the slot stays an empty circle, never an invented icon. */
+function TokenLogo({ src }: { src?: string }) {
+  const [broken, setBroken] = useState(false);
+  if (!src || broken) {
+    return <span className="size-7 rounded-full border border-dashed border-border bg-surface-2" title="No logo published on DexScreener" aria-hidden />;
+  }
+  return (
+    <img
+      src={src}
+      alt=""
+      width={28}
+      height={28}
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onError={() => setBroken(true)}
+      className="size-7 rounded-full bg-surface-2 object-cover ring-1 ring-border"
+    />
+  );
+}
+
 export function TokenRow({ t, compact = false }: { t: Token; compact?: boolean }) {
   return (
     <div
@@ -22,9 +43,7 @@ export function TokenRow({ t, compact = false }: { t: Token; compact?: boolean }
         compact ? 'grid-cols-[28px_minmax(0,1fr)_auto]' : 'grid-cols-[28px_minmax(0,1fr)_auto] sm:grid-cols-[28px_minmax(0,1fr)_64px_84px_84px]',
       )}
     >
-      <div className="grid size-7 place-items-center rounded-full text-[10px] font-semibold text-white" style={{ backgroundColor: `hsl(${t.hue} 50% 42%)` }} aria-hidden>
-        {t.symbol.slice(0, 2)}
-      </div>
+      <TokenLogo key={t.logo ?? 'none'} src={t.logo} />
       <div className="min-w-0">
         <div className="flex min-w-0 items-baseline gap-1.5">
           <span className="truncate text-sm font-medium text-fg">{t.name}</span>

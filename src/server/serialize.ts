@@ -5,6 +5,7 @@ import { evaluateModel } from '@/engine/proof';
 import type { EliminatedItem, ExclusionItem, IdeaCycle, ModelRun, Token } from '@/engine/types';
 import { confidenceLabel, vcEpsilon, type BoundDef } from '@/math/bounds';
 import type { Runtime } from './runtime';
+import { dexImageUrl } from './sources/dexImage';
 
 const r4 = (v: number) => Math.round(v * 1e4) / 1e4;
 
@@ -15,7 +16,8 @@ export const tokenJson = (t: Token, chain: string) => ({
   symbol: t.symbol,
   lore: t.lore,
   lore_withheld: t.loreWithheld,
-  logo: t.logo ?? null,
+  logo: dexImageUrl(t.logo) ?? null, // older snapshots hold bare boost image ids
+
   creator: t.deployer || null,
   launched_at: t.launchedAt,
   launch_hour: t.hour,

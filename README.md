@@ -49,7 +49,7 @@ The layout is called "Research Desk": a sidebar plus a grid of cards. It is buil
 - Inter for text and JetBrains Mono for numbers.
 
 - **Themes:** light, dark, or follow the system. The choice is saved per browser and applied before first paint, so there is no flash. In light mode the persona accent is darkened automatically for contrast.
-- **Hero video:** put your own file at `public/videos/hero.mp4`, or set `NEXT_PUBLIC_HERO_VIDEO` / `NEXT_PUBLIC_HERO_POSTER`.
+- **Hero video:** `public/videos/hero.mp4` with its poster `public/videos/hero-poster.jpg` (override with `NEXT_PUBLIC_HERO_VIDEO` / `NEXT_PUBLIC_HERO_POSTER`).
   - It plays muted and looped, and pauses when scrolled off-screen.
   - It never autoplays for visitors who have reduced motion turned on.
   - If the file is missing, the illustration is shown instead.

@@ -3,6 +3,7 @@ import { sanitizeLore } from '@/engine/sanitize';
 import type { Token } from '@/engine/types';
 import type { Agent } from '../agent';
 import { sampleHolders } from '../holders';
+import { dexImageUrl } from './dexImage';
 
 interface Profile {
   chainId?: string;
@@ -132,7 +133,10 @@ export class DexScreenerSource {
         const existing = this.agent.tokens.get(addr);
         if (existing) {
           // Peak, never current: a token that touched 25K and fell back still crossed the line.
-          if (b.mc > existing.peakMc) this.agent.upsert({ ...existing, peakMc: Math.round(b.mc) }, false);
+          const peakMc = Math.max(existing.peakMc, Math.round(b.mc));
+          // Teams often publish their logo after launch; pick it up on a later poll.
+          const logo = existing.logo ?? dexImageUrl(b.image);
+          if (peakMc !== existing.peakMc || logo !== existing.logo) this.agent.upsert({ ...existing, peakMc, logo }, false);
           continue;
         }
         const q = this.queue.get(addr);
@@ -160,7 +164,7 @@ export class DexScreenerSource {
           launchedAt: launched.toISOString(),
           deployer: '',
           hue: HUES[parseInt(addr.slice(2, 4), 16) % HUES.length] ?? 38,
-          logo: q.icon ?? b.image,
+          logo: dexImageUrl(q.icon) ?? dexImageUrl(b.image),
         };
         this.agent.upsert(token);
         this.stats.discovered++;
