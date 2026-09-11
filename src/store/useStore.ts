@@ -25,7 +25,7 @@ interface State {
   boundId: BoundId | null; // null → the persona's own formula
 
   // Live data from the server
-  dataSource: 'simulated' | 'live'; // only 'live' may be labelled LIVE
+  dataSource: 'connecting' | 'simulated' | 'live'; // 'connecting' until /api/state answers; only 'live' may be labelled LIVE
   connected: boolean;
   startedAt: string | null;
   feed: Token[];
@@ -71,7 +71,7 @@ export const useStore = create<State>()(
       personaId: initialPersona,
       boundId: isBoundId(SITE.defaultBound) ? SITE.defaultBound : null,
 
-      dataSource: 'simulated',
+      dataSource: 'connecting',
       connected: false,
       startedAt: null,
       feed: [],

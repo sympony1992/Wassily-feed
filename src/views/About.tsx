@@ -14,7 +14,7 @@ import { useBound, usePersona, useStore } from '@/store/useStore';
 export function AboutView() {
   const persona = usePersona();
   const bound = useBound();
-  const live = useStore((s) => s.dataSource) === 'live';
+  const source = useStore((s) => s.dataSource);
   const labelled = useStore((s) => s.tally.all);
   const [method, setMethod] = useState<string | null>(null);
   const [showMethod, setShowMethod] = useState(false);
@@ -86,7 +86,9 @@ export function AboutView() {
         <Card>
           <CardHeader
             title="5. Check the work"
-            description={live ? `Real ${SITE.chain} tokens collected by this server` : 'This server is running the simulated market'}
+            description={
+              { live: `Real ${SITE.chain} tokens collected by this server`, simulated: 'This server is running the simulated market', connecting: 'Checking which data source this server uses' }[source]
+            }
           />
           <div className="space-y-4 px-5 py-4">
             <p className="text-sm text-pretty text-muted">Download every labelled token, rerun the model, and check whether the jar is honest.</p>

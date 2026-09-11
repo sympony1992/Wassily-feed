@@ -22,6 +22,13 @@ const NAV = [
   { href: '/about', label: 'About', Icon: IconInfo },
 ];
 
+// Pages are prerendered before the source is known, so claim neither live nor simulated until /api/state answers.
+const SOURCE_COPY = {
+  connecting: { label: 'Connecting…', detail: 'Checking the data source', footer: 'Connecting to the data source' },
+  simulated: { label: 'Simulated data', detail: 'Not real tokens', footer: 'Simulated data, not real tokens' },
+  live: { label: 'Live data', detail: `${SITE.chain} via DexScreener`, footer: `Live ${SITE.chain} data via DexScreener` },
+} as const;
+
 function Brand() {
   const persona = usePersona();
   return (
@@ -40,7 +47,7 @@ function Brand() {
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const bound = useBound();
-  const live = useStore((s) => s.dataSource) === 'live';
+  const source = useStore((s) => s.dataSource);
   const connected = useStore((s) => s.connected);
   const countdown = useStore((s) => s.countdown);
   const [remixOpen, setRemixOpen] = useState(false);
@@ -73,11 +80,17 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       <div className="mt-auto flex flex-col gap-3">
         <div className="rounded-lg border border-border p-3">
           <div className="flex items-center gap-2 text-sm font-medium text-fg">
-            <StatusDot tone={!connected ? 'negative' : live ? 'positive' : 'accent'} />
-            {live ? 'Live data' : 'Simulated data'}
+            <StatusDot tone={source === 'connecting' ? 'neutral' : !connected ? 'negative' : source === 'live' ? 'positive' : 'accent'} />
+            {SOURCE_COPY[source].label}
           </div>
           <p className="mt-1 text-xs text-pretty text-muted">
-            {live ? `${SITE.chain} via DexScreener` : 'Not real tokens'} · next cycle in <span className="font-mono tabular-nums">{countdown}s</span>
+            {SOURCE_COPY[source].detail}
+            {source !== 'connecting' && (
+              <>
+                {' '}
+                · next cycle in <span className="font-mono tabular-nums">{countdown}s</span>
+              </>
+            )}
           </p>
         </div>
 
@@ -113,7 +126,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
 export function AppShell({ title, description, meta, children }: { title: ReactNode; description?: ReactNode; meta?: ReactNode; children: ReactNode }) {
   const persona = usePersona();
-  const live = useStore((s) => s.dataSource) === 'live';
+  const source = useStore((s) => s.dataSource);
   const [navOpen, setNavOpen] = useState(false);
 
   return (
@@ -144,7 +157,7 @@ export function AppShell({ title, description, meta, children }: { title: ReactN
         </main>
 
         <footer className="border-t border-border px-4 py-4 text-xs text-pretty text-muted sm:px-6 lg:px-8">
-          {live ? `Live ${SITE.chain} data via DexScreener` : 'Simulated data, not real tokens'} · {persona.mascot} is a mascot, not a financial adviser. It estimates whether a token past{' '}
+          {SOURCE_COPY[source].footer} · {persona.mascot} is a mascot, not a financial adviser. It estimates whether a token past{' '}
           {fmtUsdK(SITE.entryMc)} reaches {fmtUsdK(SITE.targetMc)}; it does not predict price.
         </footer>
       </div>

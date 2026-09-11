@@ -7,6 +7,8 @@ import { CopyAddress } from '../layout/CopyAddress';
 import { Card, StatusDot } from '../ui/primitives';
 import { HeroIllustration } from './HeroIllustration';
 
+const SOURCE_LABEL = { connecting: 'Connecting to', simulated: 'Simulated', live: 'Live' } as const;
+
 /**
  * Your video (SITE.heroVideo, default /videos/hero.mp4): muted, looping, paused
  * whenever it is off-screen, and never autoplayed under reduced motion.
@@ -16,7 +18,7 @@ export function HeroMedia() {
   const persona = usePersona();
   const proof = useLiveProof();
   const connected = useStore((s) => s.connected);
-  const live = useStore((s) => s.dataSource) === 'live';
+  const source = useStore((s) => s.dataSource);
   const reduced = useReducedMotion();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [failed, setFailed] = useState(!SITE.heroVideo);
@@ -41,8 +43,6 @@ export function HeroMedia() {
     if (video && (video.error || video.networkState === HTMLMediaElement.NETWORK_NO_SOURCE)) setFailed(true);
   }, []);
 
-  const sourceLabel = live ? 'Live' : 'Simulated';
-
   return (
     <Card className="overflow-hidden">
       <div className="relative aspect-video w-full bg-[#0b0f14]">
@@ -65,8 +65,8 @@ export function HeroMedia() {
         )}
 
         <div className="absolute top-3 left-3 flex items-center gap-1.5 rounded-md bg-black/65 px-2 py-1 text-xs font-medium text-white ring-1 ring-white/15">
-          <StatusDot tone={!connected ? 'negative' : live ? 'positive' : 'accent'} />
-          {sourceLabel} {persona.mascot} feed
+          <StatusDot tone={source === 'connecting' ? 'neutral' : !connected ? 'negative' : source === 'live' ? 'positive' : 'accent'} />
+          {SOURCE_LABEL[source]} {persona.mascot} feed
         </div>
         <div className="absolute top-3 right-3 max-w-[60%]">
           <CopyAddress variant="overlay" />
