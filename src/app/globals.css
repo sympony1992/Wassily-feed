@@ -1,0 +1,137 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-negative: var(--negative);
+  --color-negative-soft: var(--negative-soft);
+  --color-code: var(--code);
+  --color-code-fg: var(--code-fg);
+}
+
+/* Light (default) */
+:root {
+  /* Persona accent, overwritten at runtime; darkened here so text on white stays readable. */
+  --accent-base: #f2c94c;
+
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #f0f2f5;
+  --border: #e2e5ea;
+  --border-strong: #cbd1d9;
+  --fg: #11161c;
+  --muted: #58626f;
+  --subtle: #8b94a1;
+
+  --accent: color-mix(in oklab, var(--accent-base) 55%, #000);
+  --accent-fg: #ffffff;
+  --accent-soft: color-mix(in oklab, var(--accent-base) 18%, transparent);
+
+  --positive: #047857;
+  --positive-soft: color-mix(in oklab, #047857 10%, transparent);
+  --negative: #b42318;
+  --negative-soft: color-mix(in oklab, #b42318 9%, transparent);
+
+  --code: #f6f8fa;
+  --code-fg: #1f2933;
+  --tok-k: #8250df;
+  --tok-s: #0a7f4f;
+  --tok-n: #0550ae;
+  --tok-c: #6e7781;
+
+  color-scheme: light;
+}
+
+.dark {
+  --bg: #0a0c0f;
+  --surface: #111418;
+  --surface-2: #171b21;
+  --border: #232931;
+  --border-strong: #313943;
+  --fg: #e8ebef;
+  --muted: #9ba4af;
+  --subtle: #6c7682;
+
+  --accent: var(--accent-base);
+  --accent-fg: #0a0c0f;
+  --accent-soft: color-mix(in oklab, var(--accent-base) 14%, transparent);
+
+  --positive: #34d399;
+  --positive-soft: color-mix(in oklab, #34d399 12%, transparent);
+  --negative: #f87171;
+  --negative-soft: color-mix(in oklab, #f87171 11%, transparent);
+
+  --code: #0d1014;
+  --code-fg: #c9d3dd;
+  --tok-k: #c4a7ff;
+  --tok-s: #7ee2b8;
+  --tok-n: #7cc4fa;
+  --tok-c: #6c7682;
+
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  min-height: 100dvh;
+}
+
+/* Syntax tokens (lib/highlight.tsx) */
+.tok-k { color: var(--tok-k); }
+.tok-s { color: var(--tok-s); }
+.tok-n { color: var(--tok-n); }
+.tok-c { color: var(--tok-c); font-style: italic; }
+
+/* Native range inputs, tinted with the accent */
+input[type="range"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.katex {
+  font-size: 1.05em;
+}
+.katex-display {
+  margin: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
