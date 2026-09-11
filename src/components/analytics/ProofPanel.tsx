@@ -14,6 +14,8 @@ export function ProofPanel() {
   const bound = useBound();
   const sim = useStore((s) => s.sim);
   const tally = useStore((s) => s.tally);
+  const model = useStore((s) => s.model);
+  const example = !model || model.n < 20; // no real labels yet: the sliders hold example values
   const syncSimWithModel = useStore((s) => s.syncSimWithModel);
   const applyPreset = useStore((s) => s.applyPreset);
   const proof = useSimProof(bound);
@@ -28,8 +30,19 @@ export function ProofPanel() {
       <CardHeader
         title="Proof & capacity"
         description={`${bound.name} · ${bound.credit.split(';')[0]}, ${bound.year.split(' ')[0]}`}
-        action={<Badge tone={ready ? 'positive' : 'accent'}>{ready ? 'Target reached' : `Jar ${(proof.jar * 100).toFixed(1)}%`}</Badge>}
+        action={
+          example ? (
+            <Badge>What-if · example values</Badge>
+          ) : (
+            <Badge tone={ready ? 'positive' : 'accent'}>{ready ? 'Target reached' : `Jar ${(proof.jar * 100).toFixed(1)}%`}</Badge>
+          )
+        }
       />
+      {example && (
+        <p className="border-b border-border px-5 py-2.5 text-xs text-pretty text-muted">
+          No tokens are labelled yet, so these sliders start from example values to show how the bound behaves. The real jar is the one above.
+        </p>
+      )}
 
       <div className="grid grid-cols-1 divide-y divide-border lg:grid-cols-12 lg:divide-x lg:divide-y-0">
         <div className="space-y-5 p-5 lg:col-span-7">

@@ -18,10 +18,11 @@ const GATES: { key: GateKey; label: string }[] = [
 export function GatesCard() {
   const model = useStore((s) => s.model);
   const proof = useLiveProof();
-  const passed = proof ? GATES.filter((g) => proof.gates[g.key]).length : 0;
+  const enough = !!model && model.n >= 20; // no gate is meaningful before real labels exist
+  const passed = proof && enough ? GATES.filter((g) => proof.gates[g.key]).length : 0;
 
   const value = (k: GateKey) => {
-    if (!model) return '—';
+    if (!model || !enough) return '—';
     if (k === 'n_samples') return fmtInt(model.n);
     if (k === 'n_positive') return fmtInt(model.nPositive);
     if (k === 'auc_std') return model.aucStd.toFixed(4);
@@ -44,7 +45,7 @@ export function GatesCard() {
               <span className="text-sm text-fg">{g.label}</span>
               <span className="flex items-center gap-2">
                 <span className="font-mono text-xs text-muted tabular-nums">{value(g.key)}</span>
-                {!proof ? (
+                {!proof || !enough ? (
                   <Badge>waiting</Badge>
                 ) : ok ? (
                   <Badge tone="positive">
@@ -67,7 +68,7 @@ export function GatesCard() {
 export function WeightsCard() {
   const model = useStore((s) => s.model);
   const features = useMemo(() => {
-    if (!model) return [];
+    if (!model || model.n < 20) return [];
     const groups = FEATURE_GROUPS.map((g) => ({
       key: g.key,
       label: g.label,
@@ -85,7 +86,7 @@ export function WeightsCard() {
     <Card>
       <CardHeader title="What the model leans on" description={`Top feature families by coefficient weight, reached ${fmtUsdK(SITE.targetMc)} vs stalled`} />
       <div className="space-y-3 px-5 py-4">
-        {features.length === 0 && <p className="text-sm text-muted">Training the first model.</p>}
+        {features.length === 0 && <p className="text-sm text-pretty text-muted">Weights appear once real tokens are labelled and the model has something to learn from.</p>}
         {features.map((f) => (
           <div key={f.key}>
             <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">

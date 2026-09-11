@@ -6,8 +6,8 @@ import 'katex/dist/katex.min.css';
 import './globals.css';
 import { Providers } from './providers';
 
+// No `title` here: Providers renders it from the active persona.
 export const metadata: Metadata = {
-  title: 'Survival Agent',
   description: 'An autonomous agent that watches every token clearing $10K peak market cap and learns which ones reach $30K, gated by a provable statistical floor.',
   icons: { icon: '/favicon.svg' },
 };

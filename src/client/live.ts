@@ -82,7 +82,8 @@ function mapModel(m: any): ModelRun | null {
 /** Until someone moves a slider, the proof panel mirrors the latest model. */
 function setModel(model: ModelRun | null) {
   set({ model });
-  if (!model || get().sim.touched) return;
+  // While warming up there is nothing real to mirror; keep the example values.
+  if (!model || model.n < 20 || get().sim.touched) return;
   set((s) => ({
     sim: {
       ...s.sim,

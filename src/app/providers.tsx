@@ -26,8 +26,14 @@ export function Providers({ children }: { children: ReactNode }) {
   useEffect(() => {
     // The theme derives readable light/dark accents from this one value.
     document.documentElement.style.setProperty('--accent-base', persona.accent.base);
-    document.title = `${persona.mascot} — Autonomous ${SITE.chain} Token Survival Agent`;
   }, [persona]);
 
-  return children;
+  // React 19 hoists <title> into <head> and keeps it in sync; setting document.title
+  // imperatively would be overwritten when Next.js commits its metadata.
+  return (
+    <>
+      <title>{`${persona.mascot} — Autonomous ${SITE.chain} Token Survival Agent`}</title>
+      {children}
+    </>
+  );
 }

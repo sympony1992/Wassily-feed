@@ -5,9 +5,11 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
+    "numReplicas": 1,
+    "sleepApplication": false,
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE",
-    "numReplicas": 1
+    "restartPolicyMaxRetries": 10
   }
 }
