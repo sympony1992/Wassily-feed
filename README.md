@@ -2,6 +2,7 @@
 
 A **Next.js 16 + React 19** rebuild of the token-survival dashboard pattern at emilelearns.run, written from scratch. It is **one application**: the pages, the API and the data-ingest loop all run in a single long-lived Next.js process. There are **six mathematician personas** and **nine statistical bound formulas** to remix it with.
 
+
 The agent watches every token that clears **$10K peak market cap** and learns which ones reach **$30K**. It fills a jar only with a *proven floor* (measured AUC minus a penalty ε), never with the raw score.
 
 ```bash
