@@ -17,6 +17,7 @@ export interface Token {
   hue: number;
   logo?: string;
   holdersMissing?: boolean; // count not known (yet): the token stays out of training until it is
+  holdersIncomplete?: boolean; // its transfers could not be replayed in full, so it gets no count: never guessed, not retried
 }
 
 /** What the trainer needs from a token — nothing derived from price. */

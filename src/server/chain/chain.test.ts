@@ -53,6 +53,12 @@ describe('holdersAt', () => {
     };
     expect(await holdersAt(rpc, A, 0, 100)).toBe(2); // B and C
   });
+
+  it('gives no count when the replay missed earlier transfers', async () => {
+    const transfer = (from: string, to: string, value: bigint) => log([TOPICS.transfer, topic(from), topic(to)], `0x${pad(value.toString(16))}`);
+    const rpc = { getLogs: async () => [transfer(A, B, 400n)] }; // A's tokens arrived before the range
+    expect(await holdersAt(rpc, A, 0, 100)).toBeNull();
+  });
 });
 
 describe('RpcClient', () => {

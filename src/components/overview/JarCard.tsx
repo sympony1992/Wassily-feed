@@ -63,7 +63,7 @@ function WarmingUp() {
   }, []);
   if (!warmup) return null;
   const share = Math.min(1, warmup.ready / warmup.needed);
-  const counting = warmup.labelled - warmup.ready;
+  const counting = warmup.counting;
 
   return (
     <div className="mt-4 space-y-3 rounded-lg border border-border bg-surface-2 p-3">

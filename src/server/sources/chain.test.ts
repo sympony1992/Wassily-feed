@@ -25,6 +25,7 @@ const S = '0x3000000000000000000000000000000000000003'; // spam pool nobody trad
 const O = '0x4000000000000000000000000000000000000004'; // an old token opening a new pool
 const Z = '0x5000000000000000000000000000000000000005'; // young DEX launch, watched then labelled
 const POOL_Z = '0x5000000000000000000000000000000000000d05';
+const W = '0x6000000000000000000000000000000000000006'; // labelled token whose transfer history starts after its mint
 const A = '0xa00000000000000000000000000000000000000a';
 const B = '0xb00000000000000000000000000000000000000b';
 const C = '0xc00000000000000000000000000000000000000c'; // buys X after its first hour
@@ -52,6 +53,8 @@ function world(stateFile: string | null = null) {
     { address: X, blockNumber: hex(blocks.x + 5), topics: [TOPICS.transfer, topic(CURVE_X), topic(A)], data: `0x${pad(hex(10n ** 24n))}` },
     { address: X, blockNumber: hex(blocks.x + 9), topics: [TOPICS.transfer, topic(CURVE_X), topic(B)], data: `0x${pad(hex(10n ** 24n))}` },
     { address: X, blockNumber: hex(blocks.x + 2 * HOUR_S), topics: [TOPICS.transfer, topic(CURVE_X), topic(C)], data: `0x${pad(hex(10n ** 24n))}` }, // after the first hour: not counted
+    // W: A sends tokens it received before any block the replay reads, so W's history is incomplete
+    { address: W, blockNumber: hex(clock.head - 60 * HOUR_S + 10), topics: [TOPICS.transfer, topic(A), topic(B)], data: `0x${pad(hex(10n ** 20n))}` },
   ].map((l) => ({ address: '0xfactory', transactionHash: '0x', logIndex: '0x0', ...l }));
 
   const erc20: Record<string, [string, string]> = { [X]: ['Patient Otter', 'POTR'], [Y]: ['Quiet', 'QT'], [Z]: ['Young Heron', 'YHRN'] };
@@ -248,6 +251,30 @@ describe('Chain source (mocked chain, DexScreener and GeckoTerminal)', () => {
     expect(agent.runCycle().n).toBe(30);
     expect(agent.warmup()).toMatchObject({ labelled: 40, ready: 30 });
     expect(agent.counters().median_holders).toBe(20); // known counts only
+  });
+
+  it('gives no holder count when transfers cannot be replayed in full, and does not retry it', async () => {
+    const { clock, agent, source, make } = world(join(mkdtempSync(join(tmpdir(), 'chain-')), 'chain.json')); // a restart keeps its state
+    const launchedAt = new Date((clock.headS - 60 * HOUR_S) * 1000).toISOString();
+    agent.upsert({ mint: W, name: 'Gappy', symbol: 'GAP', lore: '', loreWithheld: false, holders: 0, holdersMissing: true, peakMc: 15_000, status: 'stalled', hour: 0, dow: 0, launchedAt, deployer: '', hue: 38 }, false);
+    await source.init();
+    expect(source.stats.holdersQueued).toBe(1);
+    await source.drainHolders();
+    expect(agent.tokens.get(W)).toMatchObject({ holders: 0, holdersMissing: true, holdersIncomplete: true });
+    expect(source.stats.holdersIncomplete).toBe(1);
+    expect(agent.warmup()).toMatchObject({ labelled: 1, ready: 0, counting: 0 });
+
+    const restarted = make();
+    await restarted.init();
+    expect(restarted.stats).toMatchObject({ holdersQueued: 0, holdersIncomplete: 1 }); // not replayed again
+  });
+
+  it('lets past launches wait while holder counts are backed up', async () => {
+    const { source } = world();
+    await source.init();
+    expect(source.historyWaits()).toBe(false);
+    (source as any).holderQueue.push(...Array.from({ length: 301 }, (_, i) => ({ token: `0x${i}`, fromBlock: 0, at: 0, tries: 0 })));
+    expect(source.historyWaits()).toBe(true);
   });
 
   it('still accepts DATA_SOURCE=dexscreener as the live source', () => {

@@ -88,6 +88,7 @@ const RETRAIN_MIN_GAP_MS = 10 * 60_000;
 const SLOW_LIVE_BATCH = 10;
 const MATURED_PER_TICK = 150; // after a restart the backlog is labelled in slices, so every tick finishes and saves its place
 const HOLDERS_PARALLEL = 3;
+const HOLDER_BACKLOG_MAX = 300; // past launches wait while more holder counts than this are queued
 const LOGO_BATCH_EVERY_MS = 60_000; // logos only decorate the feed: one GeckoTerminal call a minute, queued behind labelling
 const WATCH_SCAN_MAX_BLOCKS = 5_000;
 const HUES = [38, 152, 268, 196, 12, 88, 320];
@@ -121,6 +122,7 @@ export class ChainSource {
     unpriced: 0, // Pons tokens whose quote asset had no USD price for those hours: left out, not guessed
     slowQueued: 0,
     holdersQueued: 0,
+    holdersIncomplete: 0, // labelled tokens whose transfers could not be replayed in full: no holder count, left out of training
     logosQueued: 0,
     errors: 0,
     head: 0,
@@ -187,8 +189,9 @@ export class ChainSource {
         if (!this.stopped) this.timer = setTimeout(boot, 60_000);
         return;
       }
-      void this.loop('backfill', () => this.backfillStep(), () => !!this.state && this.state.backfillCursor > this.state.backfillFrom);
-      void this.loop('slow', () => (this.slowLive.length ? this.labelQueued() : this.slowStep()), () => this.slowLive.length > 0 || (!!this.state && this.state.slowCursor > this.state.backfillFrom));
+      // Past launches wait while holder counts are backed up: a label without its holder count cannot train yet.
+      void this.loop('backfill', () => this.backfillStep(), () => !!this.state && this.state.backfillCursor > this.state.backfillFrom && !this.historyWaits());
+      void this.loop('slow', () => (this.slowLive.length ? this.labelQueued() : this.slowStep()), () => this.slowLive.length > 0 || (!!this.state && this.state.slowCursor > this.state.backfillFrom && !this.historyWaits()));
       void this.loop('holders', () => this.holdersBatch(), () => this.holderQueue.length > 0);
       void this.loop('logos', () => this.logoBatch(), () => this.logoQueue.size > 0);
       const tick = async () => {
@@ -223,6 +226,11 @@ export class ChainSource {
     };
   }
 
+  /** Past launches wait while holder counts are backed up: a label without its holder count cannot train yet. Public for tests. */
+  historyWaits() {
+    return this.holderQueue.length > HOLDER_BACKLOG_MAX;
+  }
+
   /** Anchors block times and restores or creates the backfill plan. Public for tests. */
   async init() {
     const head = await this.rpc.blockNumber();
@@ -253,8 +261,8 @@ export class ChainSource {
     if (this.state.holdersSampledHours !== SITE.holderSampleHours) {
       let recount = 0;
       for (const t of [...this.agent.tokens.values()]) {
-        if (t.status === 'pending' || t.holdersMissing) continue;
-        this.agent.upsert({ ...t, holders: 0, holdersMissing: true }, false);
+        if (t.status === 'pending' || (t.holdersMissing && !t.holdersIncomplete)) continue;
+        this.agent.upsert({ ...t, holders: 0, holdersMissing: true, holdersIncomplete: undefined }, false);
         recount++;
       }
       this.state.holdersSampledHours = SITE.holderSampleHours;
@@ -265,12 +273,18 @@ export class ChainSource {
         this.agent.runCycle();
       }
     }
-    // Holder counts that were still being replayed when the process stopped.
+    // Holder counts that were still being replayed when the process stopped. A token whose transfers could not be replayed in full is not tried again.
+    this.stats.holdersIncomplete = 0;
     for (const t of this.agent.tokens.values()) {
       if (t.status === 'pending' || !t.holdersMissing) continue;
+      if (t.holdersIncomplete) {
+        this.stats.holdersIncomplete++;
+        continue;
+      }
       const launched = Date.parse(t.launchedAt);
       this.holderQueue.push({ token: t.mint.toLowerCase(), fromBlock: Math.max(0, this.blockFor(launched) - MINT_LOOKBACK), at: launched + HOLDERS_AT_MS, tries: 0 });
     }
+    this.stats.holdersQueued = this.holderQueue.length;
     // Logos are looked up again after a restart: the queue lives in memory.
     for (const t of this.agent.tokens.values()) if (!t.logo) this.logoQueue.add(t.mint.toLowerCase());
     this.stats.logosQueued = this.logoQueue.size;
@@ -577,7 +591,12 @@ export class ChainSource {
           const end = Math.min(this.stats.head || this.anchor.block, this.blockFor(job.at));
           const holders = await holdersAt(this.rpc, job.token, job.fromBlock, end);
           const t = this.agent.tokens.get(job.token);
-          if (t && t.status !== 'pending') this.agent.upsert({ ...t, holders, holdersMissing: false }, false);
+          if (!t || t.status === 'pending') return;
+          if (holders == null) {
+            // Some of its transfers happened before the replayed range: no count is better than a wrong one.
+            this.agent.upsert({ ...t, holdersIncomplete: true }, false);
+            this.stats.holdersIncomplete++;
+          } else this.agent.upsert({ ...t, holders, holdersMissing: false, holdersIncomplete: undefined }, false);
         } catch (err) {
           if (++job.tries < 3) this.holderQueue.push(job);
           else this.o.log?.(`chain holders ${job.token}: ${(err as Error).message}`);

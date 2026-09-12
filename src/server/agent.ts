@@ -119,6 +119,7 @@ export class Agent extends EventEmitter {
     return {
       labelled: this.labelled().length,
       ready: this.trainingSize(), // labelled and with a holder count: what the model trains on
+      counting: this.labelled().filter((t) => t.holdersMissing && !t.holdersIncomplete).length, // holder counts still being replayed
       needed: SITE.gates.nSamplesMin,
       pending: pending.length,
       next_label_at: Number.isFinite(oldest) ? new Date(oldest + SITE.labelHours * 3_600_000).toISOString() : null,

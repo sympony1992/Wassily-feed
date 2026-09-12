@@ -128,7 +128,7 @@ async function refreshState(includeFeed: boolean) {
       lift: f.lift ?? [],
       baseline: f.baseline ?? 0,
       loreCorr: f.lore_corr ?? 0,
-      warmup: w ? { labelled: w.labelled, ready: w.ready ?? w.labelled, needed: w.needed, pending: w.pending, nextLabelAt: w.next_label_at } : null,
+      warmup: w ? { labelled: w.labelled, ready: w.ready ?? w.labelled, counting: w.counting ?? 0, needed: w.needed, pending: w.pending, nextLabelAt: w.next_label_at } : null,
       ...(includeFeed ? { feed: (data.tokens ?? []).map(mapToken).slice(0, SITE.consoleFeedCap) } : {}),
     });
     applyCounters(data.counters);
