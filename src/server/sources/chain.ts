@@ -3,7 +3,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { SITE } from '@/config/site';
 import type { Agent } from '../agent';
 import { LAUNCH_TOPICS, NATIVE, TOPICS, WETH, decodeLaunch, type PoolLaunch } from '../chain/abi';
-import { GeckoClient } from '../chain/gecko';
+import { GeckoClient, type GeckoLane } from '../chain/gecko';
 import { holdersAt } from '../chain/holders';
 import { ponsPeaks, tradePrice } from '../chain/pons';
 import { QuotePrices } from '../chain/prices';
@@ -282,7 +282,7 @@ export class ChainSource {
     const to = s.slowCursor;
     const from = Math.max(s.backfillFrom, to - CHUNK + 1);
     const candidates = [...this.group(await this.launches(from, to, false)).values()].filter((c) => !c.curve);
-    await this.resolveDex(this.sampled(candidates), false);
+    await this.resolveDex(this.sampled(candidates), false, 'low'); // history waits behind live labels
     s.slowCursor = from - 1;
     this.save();
     this.retrainIfDue();
@@ -292,7 +292,7 @@ export class ChainSource {
   async labelQueued() {
     while (this.slowLive.length && !this.stopped) {
       const batch = this.slowLive.slice(0, SLOW_LIVE_BATCH);
-      await this.resolveDex(batch, true);
+      await this.resolveDex(batch, true, 'high');
       this.slowLive.splice(0, batch.length);
       this.stats.slowQueued = this.slowLive.length;
       this.retrainIfDue();
@@ -403,8 +403,8 @@ export class ChainSource {
       { windowBlocks: this.windowBlocks(), head: this.stats.head || this.anchor.block, secondsAt: (block) => this.secondsAt(block) },
     );
 
+    const priced: { c: Candidate; cap: number; supply: number }[] = [];
     for (const c of open) {
-      if (this.stopped) return;
       this.stats.checked++;
       const peak = peaks.get(c.token);
       const info = peak?.trades ? await this.tokenInfo.get(c.token) : null; // an untraded curve costs no further calls
@@ -413,20 +413,33 @@ export class ChainSource {
         this.drop(c.token);
         continue;
       }
-      let cap = peak.peakPrice * info.supply;
-      // Graduated inside the window: trading moved to a DEX pool, which only matters if the curve did not settle the label.
-      if (cap < SITE.targetMc) {
-        for (const pool of [...c.pools].filter((p) => p !== c.curve).slice(0, 2)) {
-          const high = await this.gecko.peakPrice(pool, c.token, Math.floor(c.launchedAt / 1000), Math.floor((c.launchedAt + WINDOW_MS) / 1000));
-          if (high != null) cap = Math.max(cap, high * info.supply);
-        }
+      priced.push({ c, cap: peak.peakPrice * info.supply, supply: info.supply });
+    }
+
+    // Graduated inside the window: trading moved to a DEX pool. That only matters when the curve alone did not
+    // settle the label, and only pools DexScreener lists have trades worth a GeckoTerminal call.
+    const unsettled = priced.filter((p) => p.cap < SITE.targetMc && [...p.c.pools].some((pool) => pool !== p.c.curve));
+    const listed = unsettled.length ? await this.dexPairs(unsettled.map((p) => p.c.token)) : new Map<string, DexPair[]>();
+    for (const p of unsettled) {
+      const windowEnd = p.c.launchedAt + WINDOW_MS;
+      const pools = (listed.get(p.c.token) ?? [])
+        .filter((pair) => pair.pairAddress && (pair.pairCreatedAt ?? Infinity) <= windowEnd)
+        .map((pair) => pair.pairAddress!.toLowerCase())
+        .slice(0, 2);
+      for (const pool of pools) {
+        const high = await this.gecko.peakPrice(pool, p.c.token, Math.floor(p.c.launchedAt / 1000), Math.floor(windowEnd / 1000));
+        if (high != null) p.cap = Math.max(p.cap, high * p.supply);
       }
-      await this.finish(c, c.launchedAt, cap, undefined, undefined, undefined, announce);
+    }
+
+    for (const p of priced) {
+      if (this.stopped) return;
+      await this.finish(p.c, p.c.launchedAt, p.cap, undefined, undefined, undefined, announce);
     }
   }
 
   /** Other venues: DexScreener says where a token trades, GeckoTerminal's hourly candles give the 48h peak. */
-  private async resolveDex(candidates: Candidate[], announce: boolean) {
+  private async resolveDex(candidates: Candidate[], announce: boolean, lane: GeckoLane) {
     const open = this.open(candidates).filter((c) => !c.curve);
     if (!open.length) return;
     const pairs = await this.dexPairs(open.map((c) => c.token));
@@ -454,7 +467,7 @@ export class ChainSource {
       // A failed lookup throws, so the whole step is retried later rather than mislabelled.
       let peak: number | null = null;
       for (const pool of pools) {
-        const high = await this.gecko.peakPrice(pool, c.token, Math.floor(launchedAt / 1000), Math.floor(windowEnd / 1000));
+        const high = await this.gecko.peakPrice(pool, c.token, Math.floor(launchedAt / 1000), Math.floor(windowEnd / 1000), lane);
         if (high != null) peak = Math.max(peak ?? 0, high);
       }
       this.stats.checked++;
@@ -537,7 +550,7 @@ export class ChainSource {
     const batch = [...this.logoQueue].slice(0, 30);
     batch.forEach((t) => this.logoQueue.delete(t));
     try {
-      for (const meta of await this.gecko.tokens(batch)) {
+      for (const meta of await this.gecko.tokens(batch, 'low')) {
         const t = this.agent.tokens.get(meta.address);
         if (t && !t.logo && meta.imageUrl) this.agent.upsert({ ...t, logo: meta.imageUrl }, false);
       }

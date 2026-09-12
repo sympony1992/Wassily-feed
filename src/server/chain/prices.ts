@@ -4,6 +4,7 @@ import type { GeckoClient } from './gecko';
 const HOUR_S = 3600;
 const NEAR_S = 6 * HOUR_S; // thin quote markets skip hours; a candle this close is used as is
 const FAR_S = 48 * HOUR_S; // beyond this there is no honest price for that hour
+const REFETCH_S = 15 * 60; // at most one fresh fetch per quote in this window, however many trades ask
 // The deepest USDG/WETH pool on the chain prices WETH.
 const REFERENCE_POOLS: Record<string, string> = { [WETH]: '0x52e65b17fb6e5ba00ed806f37afcd2daa50271ca' };
 const STABLES = new Set([USDG]);
@@ -12,6 +13,7 @@ const STABLES = new Set([USDG]);
 export class QuotePrices {
   private readonly closes = new Map<string, Map<number, number>>();
   private readonly covered = new Map<string, [number, number][]>();
+  private readonly fetchedAt = new Map<string, number>();
   private readonly pools = new Map<string, Promise<string | null>>();
 
   constructor(
@@ -28,11 +30,13 @@ export class QuotePrices {
 
     let price = nearest(series, hour, NEAR_S);
     const covered = this.covered.get(q) ?? [];
-    if (price == null && !covered.some(([from, to]) => hour >= from && hour <= to)) {
+    const fetchedRecently = (this.fetchedAt.get(q) ?? -Infinity) > this.nowSeconds() - REFETCH_S;
+    if (price == null && !fetchedRecently && !covered.some(([from, to]) => hour >= from && hour <= to)) {
       const pool = await this.poolFor(q);
       if (!pool) throw new Error(`no USD market for quote ${q}`);
       const until = Math.min(this.nowSeconds(), hour + 500 * HOUR_S);
       for (const [t, close] of await this.gecko.hourlyCloses(pool, q, until, 1000)) if (close > 0) series.set(t, close);
+      this.fetchedAt.set(q, this.nowSeconds());
       covered.push([until - 999 * HOUR_S, until - HOUR_S]); // the newest hour is still open and fetched again later
       this.covered.set(q, covered);
       price = nearest(series, hour, NEAR_S);

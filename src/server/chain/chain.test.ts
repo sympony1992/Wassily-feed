@@ -139,3 +139,36 @@ describe('Pons trade prices', () => {
     expect(await prices.usdAt('0x5fc5360d0400a0fd4f2af552add042d716f1d168', 1_789_000_000)).toBe(1);
   });
 });
+
+describe('GeckoClient lanes', () => {
+  it('serves labelling calls before backfill and logo calls', async () => {
+    const order: string[] = [];
+    const fetchImpl = (async (input: string | URL | Request) => {
+      order.push(String(input).includes('/tokens/multi/') ? 'low' : 'high');
+      return new Response(JSON.stringify({ data: [] }), { headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const gecko = new GeckoClient({ network: 'robinhood', fetchImpl, sleep: async () => {}, now: () => 0 });
+    await Promise.all([gecko.tokens([A], 'low'), gecko.tokens([B], 'low'), gecko.peakPrice(C, A, 0, 3600, 'high')]);
+    expect(order[0]).toBe('high');
+  });
+});
+
+describe('QuotePrices refetch window', () => {
+  it('does not ask again for every trade when a thin market has no recent candle', async () => {
+    let calls = 0;
+    let now = 1_789_000_000;
+    const gecko = {
+      topPool: async () => '0xpool',
+      hourlyCloses: async (): Promise<[number, number][]> => {
+        calls++;
+        return [[Math.floor(now / 3600) * 3600 - 40 * 3600, 7]]; // last trade 40 hours ago
+      },
+    };
+    const prices = new QuotePrices(gecko, () => now);
+    const stock = '0xaf3d76f1834a1d425780943c99ea8a608f8a93f9';
+    expect(await prices.usdAt(stock, now)).toBe(7);
+    now += 120;
+    expect(await prices.usdAt(stock, now + 3600)).toBe(7);
+    expect(calls).toBe(1);
+  });
+});

@@ -1,7 +1,8 @@
 /**
  * GeckoTerminal's public API (no key). The free tier allows about 30 calls a
  * minute, but a shared cloud IP often gets less, so the pace adapts: it slows
- * down on every 429 and creeps back up while calls succeed.
+ * down on every 429 and creeps back up while calls succeed. Calls wait in two
+ * lanes: labelling goes ahead of backfill for other venues and logos.
  */
 export interface GeckoPool {
   address: string; // as GeckoTerminal lists it: pair/pool address, or the v4 pool id
@@ -22,6 +23,8 @@ export interface GeckoToken {
   imageUrl?: string;
 }
 
+export type GeckoLane = 'high' | 'low';
+
 export interface GeckoOptions {
   network: string;
   api?: string;
@@ -37,15 +40,19 @@ interface Resource<A> {
   relationships?: Record<string, { data?: { id?: string } }>;
 }
 
+type Candles = { data?: { attributes?: { ohlcv_list?: [number, number, number, number, number, number][] } } };
+
 const BATCH = 30; // the multi endpoints accept up to 30 addresses
 const MIN_PER_MINUTE = 4;
 const stripNetwork = (id = '') => id.slice(id.indexOf('_') + 1).toLowerCase();
 
 export class GeckoClient {
-  readonly stats = { calls: 0, throttled: 0, failed: 0, perMinute: 0 };
+  readonly stats = { calls: 0, throttled: 0, failed: 0, perMinute: 0, waitingHigh: 0, waitingLow: 0 };
   private nextAt = 0;
   private readonly ceiling: number;
   private pace: number;
+  private readonly lanes: Record<GeckoLane, (() => void)[]> = { high: [], low: [] };
+  private pumping = false;
 
   constructor(private readonly o: GeckoOptions) {
     this.ceiling = o.perMinute ?? 28;
@@ -63,14 +70,44 @@ export class GeckoClient {
 
   /** How long a call made now would wait for its turn. */
   backlogMs() {
-    return Math.max(0, this.nextAt - this.now());
+    const queued = this.lanes.high.length + this.lanes.low.length;
+    return Math.max(0, this.nextAt - this.now()) + (queued * 60_000) / this.pace;
   }
 
-  private async get<T>(path: string): Promise<T | null> {
+  /** Resolves when it is this call's turn: one call per gap, high lane first. */
+  private turn(lane: GeckoLane) {
+    return new Promise<void>((resolve) => {
+      this.lanes[lane].push(resolve);
+      this.countWaiting();
+      if (!this.pumping) void this.pump();
+    });
+  }
+
+  private async pump() {
+    this.pumping = true;
+    while (this.lanes.high.length || this.lanes.low.length) {
+      await this.wait(this.nextAt - this.now());
+      const release = this.lanes.high.shift() ?? this.lanes.low.shift();
+      this.nextAt = Math.max(this.now(), this.nextAt) + 60_000 / this.pace;
+      this.countWaiting();
+      release?.();
+    }
+    this.pumping = false;
+  }
+
+  private countWaiting() {
+    this.stats.waitingHigh = this.lanes.high.length;
+    this.stats.waitingLow = this.lanes.low.length;
+  }
+
+  private setPace(pace: number) {
+    this.pace = Math.max(MIN_PER_MINUTE, Math.min(this.ceiling, pace));
+    this.stats.perMinute = Math.round(this.pace * 10) / 10;
+  }
+
+  private async get<T>(path: string, lane: GeckoLane): Promise<T | null> {
     for (let attempt = 0; attempt < 6; attempt++) {
-      const at = Math.max(this.now(), this.nextAt);
-      this.nextAt = at + 60_000 / this.pace;
-      await this.wait(at - this.now());
+      await this.turn(lane);
       this.stats.calls++;
       try {
         const res = await (this.o.fetchImpl ?? fetch)(`${this.o.api ?? 'https://api.geckoterminal.com/api/v2'}/networks/${this.o.network}${path}`, {
@@ -78,13 +115,11 @@ export class GeckoClient {
         });
         if (res.status === 429) {
           this.stats.throttled++;
-          this.pace = Math.max(MIN_PER_MINUTE, this.pace * 0.7);
+          this.setPace(this.pace * 0.7);
           this.nextAt = Math.max(this.nextAt, this.now() + 10_000);
-          this.stats.perMinute = Math.round(this.pace * 10) / 10;
           continue;
         }
-        this.pace = Math.min(this.ceiling, this.pace + 0.2);
-        this.stats.perMinute = Math.round(this.pace * 10) / 10;
+        this.setPace(this.pace + 0.2);
         if (res.status === 404) return null;
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return (await res.json()) as T;
@@ -99,11 +134,12 @@ export class GeckoClient {
   }
 
   /** The pools GeckoTerminal indexes among `addresses`; pools it never saw are simply absent. */
-  async pools(addresses: string[]): Promise<GeckoPool[]> {
+  async pools(addresses: string[], lane: GeckoLane = 'high'): Promise<GeckoPool[]> {
     const out: GeckoPool[] = [];
     for (let i = 0; i < addresses.length; i += BATCH) {
       const body = await this.get<{ data?: Resource<{ address: string; name: string; pool_created_at: string; fdv_usd?: string | null }>[] }>(
         `/pools/multi/${addresses.slice(i, i + BATCH).join(',')}`,
+        lane,
       );
       for (const p of body?.data ?? []) {
         out.push({
@@ -120,12 +156,12 @@ export class GeckoClient {
     return out;
   }
 
-  async tokens(addresses: string[]): Promise<GeckoToken[]> {
+  async tokens(addresses: string[], lane: GeckoLane = 'high'): Promise<GeckoToken[]> {
     const out: GeckoToken[] = [];
     for (let i = 0; i < addresses.length; i += BATCH) {
       const body = await this.get<{
         data?: Resource<{ address: string; name: string; symbol: string; decimals: number; normalized_total_supply: string | number; image_url?: string | null }>[];
-      }>(`/tokens/multi/${addresses.slice(i, i + BATCH).join(',')}`);
+      }>(`/tokens/multi/${addresses.slice(i, i + BATCH).join(',')}`, lane);
       for (const t of body?.data ?? []) {
         const a = t.attributes;
         const image = a.image_url && /^https:\/\//.test(a.image_url) && !a.image_url.includes('missing') ? a.image_url : undefined;
@@ -136,25 +172,21 @@ export class GeckoClient {
   }
 
   /** Hourly USD closes of `token` in `pool` before `beforeSec`, as [unix seconds, close], newest first. */
-  async hourlyCloses(pool: string, token: string, beforeSec: number, limit = 1000): Promise<[number, number][]> {
-    const body = await this.get<{ data?: { attributes?: { ohlcv_list?: [number, number, number, number, number, number][] } } }>(
-      `/pools/${pool}/ohlcv/hour?before_timestamp=${beforeSec}&limit=${limit}&currency=usd&token=${token}`,
-    );
+  async hourlyCloses(pool: string, token: string, beforeSec: number, limit = 1000, lane: GeckoLane = 'high'): Promise<[number, number][]> {
+    const body = await this.get<Candles>(`/pools/${pool}/ohlcv/hour?before_timestamp=${beforeSec}&limit=${limit}&currency=usd&token=${token}`, lane);
     return (body?.data?.attributes?.ohlcv_list ?? []).map(([t, , , , close]) => [t, close]);
   }
 
   /** The pool GeckoTerminal lists first for a token (its deepest market), or null. */
-  async topPool(token: string): Promise<string | null> {
-    const body = await this.get<{ data?: Resource<{ address: string }>[] }>(`/tokens/${token}/pools?page=1`);
+  async topPool(token: string, lane: GeckoLane = 'high'): Promise<string | null> {
+    const body = await this.get<{ data?: Resource<{ address: string }>[] }>(`/tokens/${token}/pools?page=1`, lane);
     return body?.data?.[0]?.attributes.address.toLowerCase() ?? null;
   }
 
   /** Highest hourly USD price of `token` in `pool` between two unix times (seconds), or null without trades. */
-  async peakPrice(pool: string, token: string, fromSec: number, toSec: number): Promise<number | null> {
+  async peakPrice(pool: string, token: string, fromSec: number, toSec: number, lane: GeckoLane = 'high'): Promise<number | null> {
     const hours = Math.min(1000, Math.ceil((toSec - fromSec) / 3600) + 2);
-    const body = await this.get<{ data?: { attributes?: { ohlcv_list?: [number, number, number, number, number, number][] } } }>(
-      `/pools/${pool}/ohlcv/hour?before_timestamp=${toSec}&limit=${hours}&currency=usd&token=${token}`,
-    );
+    const body = await this.get<Candles>(`/pools/${pool}/ohlcv/hour?before_timestamp=${toSec}&limit=${hours}&currency=usd&token=${token}`, lane);
     const candles = (body?.data?.attributes?.ohlcv_list ?? []).filter(([t]) => t >= fromSec - 3600 && t <= toSec);
     if (!candles.length) return null;
     return candles.reduce((max, [, , high]) => Math.max(max, high), 0);
