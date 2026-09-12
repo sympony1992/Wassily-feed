@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import { PERSONA_BY_ID, isPersonaId, type PersonaId } from '@/config/personas';
 import { SITE } from '@/config/site';
 import { BOUND_BY_ID, isBoundId, type BoundId } from '@/math/bounds';
@@ -20,7 +19,7 @@ export interface Warmup {
 }
 
 interface State {
-  // Remix choices (persisted per browser)
+  // One agent per deployment: the persona and its bound are fixed at build time, not picked by visitors.
   personaId: PersonaId;
   boundId: BoundId | null; // null → the persona's own formula
 
@@ -55,71 +54,56 @@ interface State {
   // Proof panel
   sim: SimParams & { touched: boolean; bootLower: number | null };
 
-  setPersona: (id: PersonaId) => void;
-  setBound: (id: BoundId | null) => void;
   setSim: (p: Partial<SimParams>) => void;
   syncSimWithModel: () => void;
   applyPreset: (p: Pick<SimParams, 'n' | 'auc' | 'd'>) => void;
   setSimBootLower: (v: number | null) => void;
 }
 
-const initialPersona = isPersonaId(SITE.defaultPersona) ? SITE.defaultPersona : 'hoeffding';
+export const useStore = create<State>()((set, get) => ({
+  personaId: isPersonaId(SITE.defaultPersona) ? SITE.defaultPersona : 'hoeffding',
+  boundId: isBoundId(SITE.defaultBound) ? SITE.defaultBound : null,
 
-export const useStore = create<State>()(
-  persist(
-    (set, get) => ({
-      personaId: initialPersona,
-      boundId: isBoundId(SITE.defaultBound) ? SITE.defaultBound : null,
+  dataSource: 'connecting',
+  connected: false,
+  startedAt: null,
+  feed: [],
+  tally: { all: 0, pass: 0, stall: 0 },
+  counters: { chain: 0, dex: 0, rpc: 0 },
+  medianHolders: 0,
+  model: null,
+  training: false,
+  countdown: 0,
+  cycle: 0,
+  hourAll: new Array(24).fill(0),
+  hourWin: new Array(24).fill(0),
+  lift: [],
+  baseline: 0,
+  loreCorr: 0,
+  warmup: null,
 
-      dataSource: 'connecting',
-      connected: false,
-      startedAt: null,
-      feed: [],
-      tally: { all: 0, pass: 0, stall: 0 },
-      counters: { chain: 0, dex: 0, rpc: 0 },
-      medianHolders: 0,
-      model: null,
-      training: false,
-      countdown: 0,
-      cycle: 0,
-      hourAll: new Array(24).fill(0),
-      hourWin: new Array(24).fill(0),
-      lift: [],
-      baseline: 0,
-      loreCorr: 0,
-      warmup: null,
+  ideas: { current: null, eliminated: [], exclusions: [], updatedAt: null, error: null, remoteSource: null },
 
-      ideas: { current: null, eliminated: [], exclusions: [], updatedAt: null, error: null, remoteSource: null },
+  sim: { n: SITE.seedTokens, auc: 0.58, d: SITE.capacityD, posRate: 0.308, touched: false, bootLower: null },
 
-      sim: { n: SITE.seedTokens, auc: 0.58, d: SITE.capacityD, posRate: 0.308, touched: false, bootLower: null },
-
-      setPersona: (personaId) => set({ personaId }),
-      setBound: (boundId) => set({ boundId }),
-      setSim: (p) => set((s) => ({ sim: { ...s.sim, ...p, touched: true, bootLower: null } })),
-      applyPreset: (p) => set((s) => ({ sim: { ...s.sim, ...p, touched: true, bootLower: null } })),
-      setSimBootLower: (bootLower) => set((s) => ({ sim: { ...s.sim, bootLower } })),
-      syncSimWithModel: () => {
-        const { model, tally, sim } = get();
-        const n = model?.n || tally.all || sim.n;
-        set({
-          sim: {
-            n: Math.max(SITE.sliders.n.min, n),
-            auc: Math.max(SITE.sliders.auc.min, Math.min(SITE.sliders.auc.max, model?.auc ?? sim.auc)),
-            d: model?.d ?? SITE.capacityD,
-            posRate: model && model.n ? model.nPositive / model.n : sim.posRate,
-            touched: true,
-            bootLower: null,
-          },
-        });
+  setSim: (p) => set((s) => ({ sim: { ...s.sim, ...p, touched: true, bootLower: null } })),
+  applyPreset: (p) => set((s) => ({ sim: { ...s.sim, ...p, touched: true, bootLower: null } })),
+  setSimBootLower: (bootLower) => set((s) => ({ sim: { ...s.sim, bootLower } })),
+  syncSimWithModel: () => {
+    const { model, tally, sim } = get();
+    const n = model?.n || tally.all || sim.n;
+    set({
+      sim: {
+        n: Math.max(SITE.sliders.n.min, n),
+        auc: Math.max(SITE.sliders.auc.min, Math.min(SITE.sliders.auc.max, model?.auc ?? sim.auc)),
+        d: model?.d ?? SITE.capacityD,
+        posRate: model && model.n ? model.nPositive / model.n : sim.posRate,
+        touched: true,
+        bootLower: null,
       },
-    }),
-    {
-      name: 'survival-agent:remix',
-      partialize: (s) => ({ personaId: s.personaId, boundId: s.boundId }),
-      skipHydration: true, // rehydrated in Providers after the first client render
-    },
-  ),
-);
+    });
+  },
+}));
 
 export const usePersona = () => PERSONA_BY_ID[useStore((s) => s.personaId)];
 

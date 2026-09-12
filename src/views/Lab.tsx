@@ -5,23 +5,18 @@ import { SimControls } from '@/components/analytics/SimControls';
 import { FloorChart } from '@/components/lab/FloorChart';
 import { AppShell } from '@/components/shell/AppShell';
 import { Formula } from '@/components/ui/Formula';
-import { PersonaMark } from '@/components/ui/PersonaMark';
 import { Badge, Button, Card, CardHeader, Meter } from '@/components/ui/primitives';
-import { PERSONAS } from '@/config/personas';
 import { SITE } from '@/config/site';
 import { simInput, useSimProof } from '@/hooks/useProof';
 import { cn } from '@/lib/cn';
 import { fmtInt } from '@/lib/format';
-import { BOUNDS, BOUND_BY_ID, jarFraction } from '@/math/bounds';
-import { useBound, useStore } from '@/store/useStore';
+import { BOUNDS, jarFraction } from '@/math/bounds';
+import { useBound, usePersona, useStore } from '@/store/useStore';
 
 export function LabView() {
+  const persona = usePersona();
   const bound = useBound();
   const sim = useStore((s) => s.sim);
-  const personaId = useStore((s) => s.personaId);
-  const boundId = useStore((s) => s.boundId);
-  const setBound = useStore((s) => s.setBound);
-  const setPersona = useStore((s) => s.setPersona);
   const syncSimWithModel = useStore((s) => s.syncSimWithModel);
   useSimProof(bound, true); // gives the bootstrap rows a value
 
@@ -36,8 +31,12 @@ export function LabView() {
   return (
     <AppShell
       title="Formula Lab"
-      description="Same evidence, nine ways to decide how much of it to trust. Move the sliders, compare the floors, then pick the formula that fills the jar across the whole site."
-      meta={<Badge tone="accent">Active · {bound.short}</Badge>}
+      description={`Same evidence, nine ways to decide how much of it to trust. ${persona.mascot}'s jar uses the ${bound.short} bound; the other eight are here to compare against it.`}
+      meta={
+        <Badge tone="accent">
+          {persona.mascot} uses · {bound.short}
+        </Badge>
+      }
     >
       <div className="space-y-4">
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
@@ -66,17 +65,16 @@ export function LabView() {
         </div>
 
         <Card className="overflow-hidden">
-          <CardHeader title="All bounds, ranked by floor" description={`n = ${fmtInt(sim.n)} · AUC ${sim.auc.toFixed(3)} · δ = ${SITE.delta}`} />
+          <CardHeader title="All bounds, ranked by floor" description={`n = ${fmtInt(sim.n)} · AUC ${sim.auc.toFixed(3)} · δ = ${SITE.delta} · highlighted: ${persona.mascot}'s formula`} />
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[52rem] text-sm">
+            <table className="w-full min-w-[46rem] text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs text-muted">
                   <th className="px-5 py-2.5 font-normal">Formula</th>
                   <th className="px-3 py-2.5 font-normal">Credit</th>
                   <th className="px-3 py-2.5 text-right font-normal">ε</th>
                   <th className="px-3 py-2.5 text-right font-normal">Floor</th>
-                  <th className="px-3 py-2.5 font-normal">Jar</th>
-                  <th className="px-5 py-2.5" />
+                  <th className="px-5 py-2.5 font-normal">Jar</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -85,7 +83,10 @@ export function LabView() {
                   return (
                     <tr key={b.id} className={cn(active && 'bg-accent-soft')}>
                       <td className="px-5 py-3">
-                        <div className="font-medium text-fg">{b.short}</div>
+                        <div className="font-medium text-fg">
+                          {b.short}
+                          {active && <span className="ml-2 text-xs font-normal text-accent">{persona.mascot}</span>}
+                        </div>
                         <div className="text-xs text-muted">{b.name}</div>
                       </td>
                       <td className="px-3 py-3 text-xs text-muted">
@@ -94,16 +95,11 @@ export function LabView() {
                       </td>
                       <td className="px-3 py-3 text-right font-mono text-xs text-muted tabular-nums">{pending ? '…' : epsilon >= 1 ? '—' : epsilon.toFixed(4)}</td>
                       <td className="px-3 py-3 text-right font-mono font-semibold text-fg tabular-nums">{pending ? '…' : floor.toFixed(4)}</td>
-                      <td className="px-3 py-3">
+                      <td className="px-5 py-3">
                         <div className="flex items-center gap-2">
                           <Meter value={pending ? 0 : jar} className="w-24" label={`${b.short} jar`} />
                           <span className="w-9 text-right font-mono text-xs text-muted tabular-nums">{pending ? '…' : `${(jar * 100).toFixed(0)}%`}</span>
                         </div>
-                      </td>
-                      <td className="px-5 py-3 text-right">
-                        <Button size="sm" variant={active ? 'secondary' : 'ghost'} onClick={() => setBound(b.id)} disabled={active && boundId === b.id}>
-                          {active ? 'Active' : 'Use'}
-                        </Button>
                       </td>
                     </tr>
                   );
@@ -112,48 +108,6 @@ export function LabView() {
             </table>
           </div>
         </Card>
-
-        <section className="pt-2">
-          <h2 className="text-lg font-semibold text-balance text-fg">Personas</h2>
-          <p className="mt-1 mb-4 max-w-3xl text-sm text-pretty text-muted">
-            A persona renames the agent after a mathematician and changes its colour, story, chalkboard and the vocabulary of its ideas. It brings its own formula, which you can still override above.
-          </p>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {PERSONAS.map((p) => {
-              const active = p.id === personaId;
-              return (
-                <Card key={p.id} className={cn('flex flex-col', active && 'border-accent')}>
-                  <div className="flex items-center gap-3 px-5 pt-5">
-                    <PersonaMark persona={p} className="size-11" />
-                    <div className="min-w-0">
-                      <h3 className="truncate font-semibold text-fg">
-                        {p.mascot} <span className="font-mono text-xs text-muted">{p.ticker}</span>
-                      </h3>
-                      <p className="truncate text-xs text-muted">
-                        {p.mathematician} · {p.life}
-                      </p>
-                    </div>
-                  </div>
-                  <p className="flex-1 px-5 pt-3 text-sm text-pretty text-muted">{p.origin.body}</p>
-                  <div className="mt-4 flex items-center justify-between gap-3 border-t border-border px-5 py-3">
-                    <span className="text-xs text-subtle">Formula: {BOUND_BY_ID[p.defaultBound].short}</span>
-                    <Button
-                      size="sm"
-                      variant={active && boundId === null ? 'secondary' : 'primary'}
-                      disabled={active && boundId === null}
-                      onClick={() => {
-                        setPersona(p.id);
-                        setBound(null);
-                      }}
-                    >
-                      {active && boundId === null ? 'Active' : 'Use persona'}
-                    </Button>
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
-        </section>
       </div>
     </AppShell>
   );

@@ -8,10 +8,9 @@ import { SITE, fmtUsdK } from '@/config/site';
 import { cn } from '@/lib/cn';
 import { useBound, usePersona, useStore } from '@/store/useStore';
 import { CopyAddress } from '../layout/CopyAddress';
-import { IconClose, IconFlask, IconGitHub, IconGrid, IconInfo, IconMenu, IconSliders, IconSparkles, IconTerminal, IconX } from '../ui/Icons';
+import { IconClose, IconFlask, IconGitHub, IconGrid, IconInfo, IconMenu, IconSparkles, IconTerminal, IconX } from '../ui/Icons';
 import { PersonaMark } from '../ui/PersonaMark';
 import { StatusDot, buttonClass } from '../ui/primitives';
-import { RemixDialog } from './RemixDialog';
 import { ThemeToggle } from './ThemeToggle';
 
 const NAV = [
@@ -50,7 +49,6 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const source = useStore((s) => s.dataSource);
   const connected = useStore((s) => s.connected);
   const countdown = useStore((s) => s.countdown);
-  const [remixOpen, setRemixOpen] = useState(false);
 
   return (
     <div className="flex h-full flex-col gap-6 p-4">
@@ -94,12 +92,10 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           </p>
         </div>
 
-        <button type="button" onClick={() => setRemixOpen(true)} className={buttonClass('secondary', 'md', 'w-full justify-between')}>
-          <span className="flex items-center gap-2">
-            <IconSliders className="size-4" /> Remix
-          </span>
-          <span className="truncate text-xs text-muted">{bound.short}</span>
-        </button>
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+          <span className="text-muted">Jar formula</span>
+          <span className="truncate font-medium text-fg">{bound.short}</span>
+        </div>
 
         <div className="flex items-center justify-between gap-2">
           <ThemeToggle />
@@ -118,8 +114,6 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </div>
         <CopyAddress className="w-full" />
       </div>
-
-      <RemixDialog open={remixOpen} onOpenChange={setRemixOpen} />
     </div>
   );
 }

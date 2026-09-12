@@ -1,217 +1,288 @@
-# Survival Agent
+# Wassily
 
-A **Next.js 16 + React 19** rebuild of the token-survival dashboard pattern at emilelearns.run, written from scratch. It is **one application**: the pages, the API and the data-ingest loop all run in a single long-lived Next.js process. There are **six mathematician personas** and **nine statistical bound formulas** to remix it with.
+**An autonomous survival agent for Robinhood Chain tokens that only believes what it can prove.**
 
+<p align="center">
+  <img src="public/videos/hero-poster.jpg" alt="Wassily at a desk at night: a chalkboard of equations, a brass lamp and a glass jar of coins" width="100%">
+</p>
 
-The agent watches every token that clears **$10K peak market cap** and learns which ones reach **$30K**. It fills a jar only with a *proven floor* (measured AUC minus a penalty ε), never with the raw score.
+Wassily watches new Robinhood Chain tokens that clear **$10K peak market cap** and learns which ones go on to reach **$30K**. It never trusts its raw score. It fills a jar only with a **proven floor**: the measured AUC minus the penalty given by **Hoeffding's inequality**. On a thin sample the penalty is large and the jar stays empty, by design.
 
-```bash
-npm install
-npm run dev          # simulated market                  → http://localhost:3000
-npm run dev:live     # real Robinhood Chain via DexScreener
-npm test             # 27 tests: math, calibration, engine, route handlers, SSE, live ingest
-npm run build        # tsc --noEmit + next build
-npm start            # production server (npm run start:live for real data)
+**Live site:** https://wassily-feed-production.up.railway.app
+
+> Wassily is a mascot, not a financial adviser. It measures survival, not price. Nothing is ever deployed or traded automatically.
+
+---
+
+## Meet Wassily
+
+Wassily is named in honour of **Wassily Hoeffding (1914–1991)**. He was born in what was then the Grand Duchy of Finland, trained in Berlin, and later became a professor at Chapel Hill.
+- **1948:** he described **U-statistics**, the family the AUC belongs to.
+- **1963:** he proved how fast an average of bounded random variables settles near its expectation. The chance that it strays by *t* shrinks like exp(−2nt²).
+
+Every launch on Robinhood Chain is a coin of unknown bias. One flip says nothing, but thousands say a lot, and Hoeffding tells you exactly how much. Wassily keeps flipping, writes every result down, and refuses to believe the average until it has nowhere left to hide.
+
+![Wassily's study at night: a chalkboard of equations, a brass lamp and a glass jar of coins on the desk](docs/images/study.jpg)
+
+---
+
+## How it works
+
+```mermaid
+flowchart TD
+  A["Discover<br/>DexScreener profiles and boosts, every 60 s"] --> B["Admit<br/>only tokens first seen within 6 h of launch"]
+  B --> C["Watch<br/>track the peak market cap, never the current one"]
+  C --> D{"48 h after launch"}
+  D -->|peak below $10K| X["Leaves the study"]
+  D -->|peak at or above $30K| P["Passed"]
+  D -->|otherwise| S["Stalled"]
+  P --> F["28 features per token"]
+  S --> F
+  F --> M["Retrain every cycle<br/>logistic regression, 5-fold CV, time split, bootstrap"]
+  M --> H["Hoeffding floor<br/>measured AUC minus epsilon"]
+  H --> J["Jar and validation gates"]
+  M --> I["100 committed ideas"]
 ```
 
-Stack: Next.js 16.3 (App Router, route handlers, instrumentation) · React 19.3 · Zustand 5 · Tailwind CSS 4.3 · Base UI 1.8 · TypeScript 7 · KaTeX · Vitest 5.
+![A desk seen from above: a pile of coins, a sorting tray, an hourglass and a jar, linked by chalk arrows](docs/images/how-it-works.jpg)
+
+1. **Discover.**
+   - Poll DexScreener `token-profiles/latest` and `token-boosts/latest` and keep tokens on `robinhood`.
+   - The profile description becomes the token's lore, after sanitising.
+2. **Admit.** Only tokens first seen within 6 hours of launch join the study. For anything older, the peak before Wassily started watching is unknowable.
+3. **Watch.** Price up to 30 addresses per call and keep the **peak** market cap. A token that touched $25K and fell back still crossed $10K.
+4. **Label.** Each token is labelled once, 48 hours after launch:
+   - peak below $10K: it leaves the study;
+   - peak at or above $30K: *passed*;
+   - anything in between: *stalled*.
+5. **Learn.** Every cycle (hourly in live mode) Wassily fits a class-balanced, L2-regularised logistic regression by Newton's method (IRLS). It then checks the fit three ways:
+   - 5-fold cross-validation;
+   - a train-on-past, test-on-future split;
+   - 500 bootstrap resamples of the out-of-fold predictions.
+6. **Prove.** Hoeffding turns the measured AUC into a floor (see [The math](#the-math)).
+7. **Fill.** The jar reads only from the floor, and is capped until four validation gates pass.
+8. **Write ideas.** Wassily writes and commits 100 ranked token-name ideas (see [Ideas](#ideas-wassily-writes)).
+
+### What Wassily looks at (d = 28)
+
+| Family | Columns |
+|---|---|
+| Launch hour | 2 (sine and cosine) |
+| Day of week | 7 |
+| Holder count, sampled once at 48 h | 1 |
+| Text shape: lore length, missing-lore flag, words in the name | 3 |
+| Lore words, hashed into buckets | 15 |
+
+Nothing derived from price, volume or liquidity is ever a feature.
 
 ---
 
-## How the data works
+## The math
 
-The agent starts when the server boots (`src/instrumentation.ts`) and keeps running in the same process. Browsers read one snapshot from `/api/state`, then receive updates over **Server-Sent Events** from `/api/stream`.
+The measured AUC Â is a two-sample U-statistic, so Hoeffding's inequality applies with the smaller class as the effective sample size:
 
-| Mode | Command / env | What visitors see |
-|---|---|---|
-| Simulated | `npm run dev`, `npm start`, `DATA_SOURCE=simulated` | A synthetic market. Badge, sidebar and footer say **SIMULATED**. |
-| Live | `npm run dev:live`, `npm run start:live`, `DATA_SOURCE=dexscreener` | Real Robinhood Chain tokens. Badge says **LIVE**. |
+```math
+\Pr\big(\hat{A} - A \le -t\big) \le e^{-2mt^{2}}, \qquad m = \min(n_{+},\, n_{-})
+```
 
-Labels are always honest: the site only says LIVE when the server is ingesting real data.
+Set the right-hand side to δ = 0.05 to get the penalty ε and the floor. With 95% confidence the true AUC is at least the floor:
 
-**Warming up.** In live mode a token is labelled 48 hours after launch, and the gates need 2,000 labelled tokens. Until then:
-- the feed shows real tokens marked *watching*;
-- the jar shows **Warming up** with `labelled / 2,000`, the number being watched, and a countdown to the next label;
-- AUC and floor read "—".
+```math
+\varepsilon = \sqrt{\frac{\ln(1/\delta)}{2m}}, \qquad \text{floor} = \hat{A} - \varepsilon
+```
 
-No model numbers are shown before real data exists.
+The jar fills from the floor, never from Â:
 
-Live data is saved to `data/state.json` every 30 s and on shutdown, so a restart loses nothing. Snapshots written by the earlier standalone server load as-is.
+```math
+\text{jar} = \min\!\left(1,\ \max\!\left(0,\ \frac{\text{floor} - 0.50}{0.60 - 0.50}\right)\right)
+```
 
----
+![A glass jar with measurement lines, a quarter full of coins, beside a magnifying glass](docs/images/the-jar.jpg)
 
-## Design
+**Worked example.** Take a measured AUC of 0.65. Survivors are the smaller class, so *m* is the number of survivors:
 
-The layout is called "Research Desk": a sidebar plus a grid of cards. It is built with:
-- Tailwind v4 theme tokens (`src/app/globals.css`);
-- Base UI primitives for the dialogs, tabs and collapsible panel;
-- `clsx` + `tailwind-merge`;
-- Inter for text and JetBrains Mono for numbers.
-
-- **Themes:** light, dark, or follow the system. The choice is saved per browser and applied before first paint, so there is no flash. In light mode the persona accent is darkened automatically for contrast.
-- **Hero video:** `public/videos/hero.mp4` with its poster `public/videos/hero-poster.jpg` (override with `NEXT_PUBLIC_HERO_VIDEO` / `NEXT_PUBLIC_HERO_POSTER`).
-  - It plays muted and looped, and pauses when scrolled off-screen.
-  - It never autoplays for visitors who have reduced motion turned on.
-  - If the file is missing, the illustration is shown instead.
-  - An H.264 MP4 at 16:9, under about 10 MB, works best.
-- **Restraint:** no gradients, glows or decorative animation. The only moving parts are the typing code panels and value changes, which animate with transform only.
-
----
-
-## Remix options
-
-Open **Remix** in the sidebar, or the **Formula Lab** page. Choices persist per browser and can be shared by URL: `/?persona=bayes&bound=vc` (`bound=default` uses the persona's own formula). The server writes a separate idea cycle for every persona, so the Brain page follows the persona you pick.
-
-**Recommended default:** Wassily with the Hoeffding bound. AUC is a U-statistic, so Hoeffding gives a genuinely distribution-free floor, and the jar fills at a believable pace. The original's VC bound needs tens of thousands of tokens before the jar moves.
-
-### Personas (`src/config/personas.ts`)
-
-| id | Mascot | Mathematician | Default formula |
+| Survivors *m* | ε | Floor | Jar |
 |---|---|---|---|
-| `hoeffding` | Wassily `$WASSILY` | Wassily Hoeffding (1914–1991) | Hoeffding bound for U-statistics |
-| `kolmogorov` | Andrey `$ANDREY` | Andrey Kolmogorov (1903–1987) | Kolmogorov–Smirnov / DKW band |
-| `bayes` | Thomas `$THOMAS` | Thomas Bayes (c. 1701–1761) | Bayes–Laplace posterior floor |
-| `chebyshev` | Pafnuty `$PAFNUTY` | Pafnuty Chebyshev (1821–1894) | Chebyshev–Cantelli inequality |
-| `bernstein` | Sergei `$SERGEI` | Sergei Bernstein (1880–1968) | Bernstein inequality |
-| `wilcoxon` | Frank `$FRANK` | Frank Wilcoxon (1892–1965) | Wilcoxon–Mann–Whitney normal interval |
+| 100 | 0.122 | 0.528 | 28% |
+| 200 | 0.087 | 0.563 | 63% |
+| 600 | 0.050 | 0.600 | full* |
+| 1,000 | 0.039 | 0.611 | full* |
 
-### Bound formulas (`src/math/bounds.ts`)
+\*Only once every gate below passes. Until then the jar stops at 95%.
 
-With n tokens, n₊ survivors, n₋ = n − n₊, measured AUC A, confidence 1 − δ (δ = 0.05):
+The same model looks very different on less evidence. At AUC 0.62 with 100 survivors, the floor is 0.498 and the jar is empty.
 
-| id | Formula | Proven or approximate |
+### Validation gates
+
+| Gate | Threshold | Why it matters |
 |---|---|---|
-| `vc` | ε = √((d(ln(2n/d)+1) + ln(4/δ)) / n) | distribution-free, very loose |
-| `vc-bootstrap` | floor = min(A − ε_VC, bootstrap 2.5th percentile) | stricter of the two |
-| `bootstrap` | floor = 2.5th percentile of B resampled AUCs (Efron) | empirical |
-| `hoeffding` | ε = √(ln(1/δ) / 2·min(n₊, n₋)) | distribution-free |
-| `bernstein` | ε = √(2σ² ln(1/δ)/m) + 2 ln(1/δ)/3m, σ² = A(1−A) | distribution-free, variance-aware |
-| `dkw` | ε = √(ln(4/δ)/2n₊) + √(ln(4/δ)/2n₋) | distribution-free |
-| `wilcoxon` | ε = z₁₋δ · SE (Hanley–McNeil 1982) | normal approximation |
-| `cantelli` | ε = SE · √((1−δ)/δ) | finite-variance only (SE itself is an estimate) |
-| `bayes` | floor = δ-quantile of Beta(kA+1, k(1−A)+1), k = A(1−A)/SE² − 1 | posterior, uniform prior |
+| Sample size | n ≥ 2,000 labelled tokens | Enough data for the folds to mean something |
+| Survivors | n₊ ≥ 200 | The bound runs on the smaller class |
+| Fold stability | σ of fold AUCs < 0.05 | One lucky fold cannot carry the score |
+| Time split | gap ≤ 0.04 | What worked on older tokens must still work on newer ones |
 
-Jar = clamp((floor − 0.50) / (0.60 − 0.50), 0, 1), capped at 95% until every gate passes (n ≥ 2,000, n₊ ≥ 200, fold σ < 0.05, time-split gap ≤ 0.04).
+![Four brass gauges on a wooden panel, each needle waiting below its mark](docs/images/gates.jpg)
 
-To add a formula, append a `BoundDef` to `BOUNDS`. To add a persona, append to `PERSONAS`.
+---
+
+## Ideas Wassily writes
+
+On every retrain, Wassily writes token-name ideas in its own vocabulary and ranks the top 100 with the current model. The **Brain** page publishes them.
+
+1. **Replayable.** The cycle is seeded by sha256 of the run id, so anyone holding the model can reproduce it.
+2. **Filtered before scoring.** The filter runs first, so it cannot shape the ranking. It rejects:
+   - real people's names;
+   - promises of returns, yield or price;
+   - impersonation of existing tickers;
+   - names already deployed on chain.
+3. **Fair scoring.** Holders are pinned at the dataset median, so only the name, lore and launch hour move the score.
+4. **Committed before display.**
+   - Each idea is hashed with sha256 over its name, lore, hour and run id.
+   - The hash is appended to `data/commitments.jsonl` before the cycle can be served.
+   - The Brain page re-verifies every hash in your browser.
+5. **Theft record.** If another address later deploys a name Wassily committed, the deployment is recorded with its time gap, and the name is excluded from future cycles.
+
+Ideas are published for transparency. Wassily does not deploy them.
+
+![Envelopes closed with wax seals next to an open ledger](docs/images/commitments.jpg)
+
+---
+
+## Honest by default
+
+- **Source labels.**
+  - **LIVE** appears only while the server ingests real tokens.
+  - A simulated market is labelled **SIMULATED**.
+  - Pages say **Connecting…** until the server answers.
+- **Warming up.**
+  - The first labels arrive 48 hours after launch.
+  - Until real labels exist, AUC, floor and model weights read "—".
+  - The jar shows `labelled / 2,000`, the tokens being watched, and a countdown to the next label.
+- **Real logos only.** Token icons are the ones teams published on DexScreener. A token without one keeps an empty slot; Wassily never draws one.
+- **Open data.** Every number is computed. Download `/api/dataset.csv` and `/api/methodology.json` to check the work.
+
+![A brass hourglass beside a row of coins and an empty jar](docs/images/warming-up.jpg)
+
+**Known limits** (also stated in `methodology.json`):
+- **Holder counts.** Robinhood Chain's explorer ([Blockscout](https://robinhoodchain.blockscout.com/)) blocks server requests. Holders are imputed with the median unless `HOLDERS_API_URL` points at a keyed endpoint, such as the [Blockscout Pro API](https://docs.blockscout.com/robinhood-api).
+- **Sampling bias.** Discovery covers tokens that appear in DexScreener profiles or boosts, not every deployment.
+- **Missing fields.** DexScreener does not provide the deployer or the block number.
+
+---
+
+## Why Hoeffding
+
+AUC is a U-statistic, so Hoeffding gives a floor that is **distribution-free**: it assumes nothing about how outcomes are distributed. The jar also fills at a believable pace. A VC-dimension bound, by comparison, needs tens of thousands of tokens before the jar moves.
+
+The **Formula Lab** (`/lab`) puts Hoeffding next to eight other bounds on the same evidence. With n tokens, n₊ survivors, n₋ = n − n₊, measured AUC A and δ = 0.05:
+
+| Bound | Formula | Guarantee |
+|---|---|---|
+| **Hoeffding (Wassily)** | ε = √(ln(1/δ) / 2·min(n₊, n₋)) | distribution-free |
+| Bernstein | ε = √(2σ² ln(1/δ)/m) + 2 ln(1/δ)/3m, σ² = A(1−A) | distribution-free, variance-aware |
+| DKW | ε = √(ln(4/δ)/2n₊) + √(ln(4/δ)/2n₋) | distribution-free |
+| VC | ε = √((d(ln(2n/d)+1) + ln(4/δ)) / n) | distribution-free, very loose |
+| VC + bootstrap | floor = min(A − ε_VC, bootstrap 2.5th percentile) | stricter of the two |
+| Bootstrap | floor = 2.5th percentile of resampled AUCs | empirical |
+| Wilcoxon | ε = z₁₋δ · SE (Hanley–McNeil) | normal approximation |
+| Cantelli | ε = SE · √((1−δ)/δ) | finite variance only |
+| Bayes | floor = δ-quantile of Beta(kA+1, k(1−A)+1) | posterior, uniform prior |
 
 ---
 
 ## Pages
 
 - **Overview `/`**
-  - KPI strip.
-  - Hero media panel for your video, with the SIMULATED/LIVE badge and contract-address copy.
-  - Jar card: AUC ruler, gates, or the warming-up progress.
-  - Live ingest feed with Pause/Resume.
+  - Key numbers and the hero video with the LIVE badge.
+  - The jar, or its warming-up progress.
+  - The live token feed with real logos.
   - Validation gates and feature weights.
-  - Proof panel (formula, sliders, Sync / Fill to target / Reset).
-  - Collapsible pipeline panel that types real excerpts of the server code.
-- **Console `/console`:** uptime, cycle countdown, feed, typing learning pipeline, survival by launch hour, lore words by survival lift, written read-out.
-- **Brain `/brain`:**
-  - 100 committed candidates per cycle, per persona.
-  - In-browser sha256 verification.
-  - The generator's real source.
-  - Confidence banner, "revised out" and theft-record tabs, score histogram.
-- **Formula Lab `/lab`:** evidence sliders, floor-vs-n chart, ranked table with **Use** buttons, persona gallery.
-- **About `/about`:** disclaimer, methodology, active formula, `dataset.csv` and `methodology.json`.
-- **Short links:** `/github`, `/x`, `/twitter` redirect to the configured URLs, or home when unset.
+  - The proof panel.
+- **Console `/console`:** uptime, the cycle countdown, the learning pipeline, survival by launch hour, and lore words ranked by survival lift.
+- **Brain `/brain`:** the 100 committed ideas per cycle, in-browser sha256 verification, the generator's real source, and the revised-out and theft records.
+- **Formula Lab `/lab`:** evidence sliders, a floor-versus-n chart, and the bound comparison.
+- **About `/about`:** disclaimer, methodology, `dataset.csv` and `methodology.json`.
 
-## API (route handlers in `src/app/api`)
+## API
 
 All routes are read-only and same-origin.
 
-| Route | |
+| Route | Returns |
 |---|---|
-| `GET /api/health` | source, token count, warm-up, ingest stats |
-| `GET /api/state` | counters, warm-up, Console findings, latest model (AUC, σ, gates, floor, jar, feature importance), 400 newest tokens |
-| `GET /api/stream` | Server-Sent Events: `{token, counters}` on each token, `{model, counters}` on each retrain |
-| `GET /api/model/history?days=30` | model runs over time |
-| `GET /api/dataset.csv` · `GET /api/methodology.json` | open data |
-| `GET /api/ideas/current` · `/cycle/[id]` · `/eliminated` · `/exclusions` · `/commitments?from=&to=` · `/generator` · `/filter` | idea cycles; add `?persona=` |
-| `GET /api/bootstrap?n=&npos=&auc=` | bootstrap floor for the proof-panel sliders |
+| `GET /api/health` | Source, token count, warm-up and ingest stats |
+| `GET /api/state` | Counters, warm-up, findings, the latest model (AUC, σ, gates, floor, jar) and the 400 newest tokens |
+| `GET /api/stream` | Server-Sent Events: `{token, counters}` per token, `{model, counters}` per retrain |
+| `GET /api/model/history?days=30` | Model runs over time |
+| `GET /api/dataset.csv` · `GET /api/methodology.json` | Open data |
+| `GET /api/ideas/current` · `/cycle/[id]` · `/eliminated` · `/exclusions` · `/commitments?from=&to=` · `/generator` · `/filter` | Idea cycles |
+| `GET /api/bootstrap?n=&npos=&auc=` | Bootstrap floor for the proof-panel sliders |
 
-Each cycle the agent:
-1. retrains (5-fold CV, time-split check, 500-resample bootstrap);
-2. writes 100 committed ideas per persona;
-3. appends every commitment to `data/commitments.jsonl` before the cycle can be served.
+---
 
-### Live ingest
+## Run it
 
-- **Discover:** poll DexScreener `token-profiles/latest` and `token-boosts/latest` every 60 s and keep tokens on `robinhood`. The profile description becomes the lore, which is sanitized.
-- **Price:** batch `tokens/v1/robinhood/{≤30 addresses}` and keep the **peak** market cap, never the current one.
-- **Admit:** only tokens first seen within 6 h of launch. For older tokens the earlier peak is unknowable.
-- **Label:** once at 48 h. Below $10K leaves the study, ≥ $30K is *passed*, otherwise *stalled*.
+```bash
+npm install
+npm run dev          # simulated market                  → http://localhost:3000
+npm run dev:live     # real Robinhood Chain tokens via DexScreener
+npm test             # 30 tests: math, calibration, engine, route handlers, SSE, live ingest
+npm run build        # tsc --noEmit + next build
+npm start            # production server (npm run start:live for real data)
+```
 
-**Known limits:**
-- **Holder counts:** Robinhood Chain's explorer ([Blockscout](https://robinhoodchain.blockscout.com/)) blocks server requests with a Cloudflare check. Holders are **imputed with the median** unless `HOLDERS_API_URL` points at a keyed endpoint (e.g. the [Blockscout Pro API](https://docs.blockscout.com/robinhood-api)).
-- **Sampling bias:** discovery only covers tokens that appear in DexScreener profiles or boosts, not every deployment.
-- **Deployer and block number:** DexScreener doesn't provide them.
+It runs as **one Next.js application**: the pages, the API and the ingest loop all live in the same long-running process. The agent starts with the server (`src/instrumentation.ts`). Browsers load one snapshot from `/api/state`, then follow updates over Server-Sent Events.
 
-All of this is stated in `methodology.json`.
+**Stack:** Next.js 16.3 · React 19.3 · Zustand 5 · Tailwind CSS 4.3 · Base UI 1.8 · TypeScript 7 · KaTeX · Vitest 5.
 
 ## Configuration
 
 See `.env.example`.
-- **Public (`NEXT_PUBLIC_*`)** values are baked in at build time: contract address, GitHub/X links, default persona and bound, hero video.
-- **Server** values are read at runtime: `DATA_SOURCE`, `CHAIN`, `PERSONA`, `BOUND`, `CYCLE_SECONDS`, `POLL_SECONDS`, `MAX_DISCOVERY_AGE_HOURS`, `HOLDERS_API_URL`, `PERSIST`, `DATA_DIR`.
 
----
+- **Public values (`NEXT_PUBLIC_*`)** are baked in at build time:
+  - `NEXT_PUBLIC_CONTRACT_ADDRESS`, `NEXT_PUBLIC_GITHUB_URL`, `NEXT_PUBLIC_X_URL`;
+  - `NEXT_PUBLIC_DEFAULT_PERSONA=hoeffding` (Wassily);
+  - `NEXT_PUBLIC_HERO_VIDEO` and `NEXT_PUBLIC_HERO_POSTER`, which default to the files in `public/videos/`.
+- **Server values** are read at runtime:
+  - `DATA_SOURCE` (`dexscreener` for live data);
+  - `PERSONA=hoeffding`;
+  - `CYCLE_SECONDS`, `POLL_SECONDS`, `MAX_DISCOVERY_AGE_HOURS`;
+  - `HOLDERS_API_URL`;
+  - `PERSIST` and `DATA_DIR`.
 
-## Deploy (one long-running process)
+## Deploy
 
-The ingest loop lives in memory, so run **exactly one instance** with a **persistent disk** for `/data`. Serverless platforms won't work. The `Dockerfile` builds the app and starts it in live mode (`DATA_SOURCE=dexscreener`, `DATA_DIR=/data`, port 3000).
+The ingest loop lives in memory, so run **exactly one instance** with a **persistent disk** mounted at `/data`. Serverless platforms will not work. The `Dockerfile` builds the app and starts it in live mode on port 3000.
 
-**Railway**
-1. Create a service from this repo. `railway.json` selects the Dockerfile, the `/api/health` check and one replica.
-2. Add a **Volume** mounted at `/data`.
-3. Add your `NEXT_PUBLIC_*` variables. They are passed to the build as Docker build args.
-4. Deploy, then attach a domain.
+- **Railway:** follow the step-by-step guide in [DEPLOY-RAILWAY.md](DEPLOY-RAILWAY.md).
+- **Any Docker host:**
 
-**Fly.io**
-```bash
-fly launch --no-deploy                       # generates fly.toml from the Dockerfile
-fly volumes create agent_data --size 1
-# in fly.toml:  [mounts] source = "agent_data"  destination = "/data"
-#               internal_port = 3000, min_machines_running = 1, auto_stop_machines = false
-fly deploy --build-arg NEXT_PUBLIC_CONTRACT_ADDRESS=0x...
-```
+  ```bash
+  docker build -t wassily --build-arg NEXT_PUBLIC_CONTRACT_ADDRESS=0x... .
+  docker run -d --name wassily --restart unless-stopped -p 3000:3000 -v wassily-data:/data wassily
+  ```
 
-**VPS / any Docker host**
-```bash
-docker build -t survival-agent --build-arg NEXT_PUBLIC_CONTRACT_ADDRESS=0x... .
-docker run -d --name survival-agent --restart unless-stopped -p 3000:3000 -v agent-data:/data survival-agent
-```
-Put it behind HTTPS (Caddy, nginx, or the platform's proxy), and make sure the proxy doesn't buffer `/api/stream`.
+  Put it behind HTTPS, and make sure the proxy does not buffer `/api/stream`.
 
----
-
-## Where this intentionally differs from the reference site
-
-- **Jar values:** the reference shows hardcoded levels (80% and 76%) that contradict its own formula; its VC floor at n = 2,346 is 0.500, an empty jar. Here every number is computed.
-- **LIVE label:** the reference labels its feed LIVE regardless of source. Here simulated data is labelled simulated, and live mode warms up honestly.
-- **Pause:** the reference's Pause button does nothing. Here it freezes the feed and the code panel.
-- **Fill to target:** the reference's preset leaves a VC jar at 0%. Here it finds evidence that actually reaches the target.
-- **Console threshold:** the reference says "$20K" but counts $30K passes. Here $30K is used everywhere.
-- **Gates:** displayed gate thresholds match the enforced ones.
-- **Commitments:** the reference's offline commitment hashes were placeholders. Here they are real sha256 and verifiable.
-- **Bootstrap floor:** computed on out-of-fold predictions.
-- **Branding:** all copy, the illustration, the logo and the code are original. No reference branding, assets, contract address, social links or credentials are included.
-
-## Layout
+## Project layout
 
 ```
 src/
-  app/          layout, providers, pages (server components), api/* route handlers, github|x|twitter redirects
+  app/          layout, providers, pages, api/* route handlers, github|x|twitter redirects
   views/        client views for each page
   components/   shell/ overview/ analytics/ ideas/ lab/ layout/ ui/
   client/       live.ts: /api/state snapshot + /api/stream SSE into the store
-  server/       runtime (singleton agent), agent, config, persist, serialize, sourceBlocks, sources/{simulated,dexscreener}
-  engine/       simulator, features, model (IRLS), trainer, ideas, ledger, proof, findings, sanitize
+  server/       runtime, agent, config, persist, serialize, sources/{dexscreener,simulated}
+  engine/       features, model (IRLS), trainer, ideas, ledger, proof, findings, sanitize, simulator
   math/         stats, auc, bounds, sha256
-  config/ store/ hooks/ lib/
-  instrumentation.ts   starts the agent when the server boots
+  config/       site.ts (study and jar settings), personas.ts (Wassily's copy and vocabulary)
+public/videos/  hero.mp4, hero-poster.jpg
 data/           state.json + commitments.jsonl (git-ignored)
 ```
 
-*The agent is a mascot, not a financial adviser. This measures survival, not price.*
+## Credits
+
+- **The name.** Wassily is named in honour of Wassily Hoeffding. The project is not affiliated with or endorsed by him, his family, or any university.
+- **The idea.** The survival-jar pattern was inspired by emilelearns.run. This is an independent rewrite; no code, branding or assets were reused.
+- **The artwork.** The hero image and video were AI-generated for this project.
+
+*Not financial advice. Wassily estimates whether a token that already reached $10K goes on to reach $30K. It does not predict price.*

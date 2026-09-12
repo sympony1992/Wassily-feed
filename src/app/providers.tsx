@@ -2,25 +2,22 @@
 
 import { useEffect, type ReactNode } from 'react';
 import { startLive } from '@/client/live';
-import { isPersonaId } from '@/config/personas';
 import { SITE } from '@/config/site';
-import { isBoundId } from '@/math/bounds';
-import { usePersona, useStore } from '@/store/useStore';
+import { usePersona } from '@/store/useStore';
+
+// Persona and formula choices saved by the old Remix dialog; the site now runs one agent.
+const LEGACY_REMIX_KEY = 'survival-agent:remix';
 
 export function Providers({ children }: { children: ReactNode }) {
   const persona = usePersona();
 
   useEffect(() => {
-    // Saved remix choices load after hydration so server and client HTML match.
-    void Promise.resolve(useStore.persist.rehydrate()).then(() => {
-      const params = new URLSearchParams(window.location.search); // shareable: ?persona=bayes&bound=vc
-      const p = params.get('persona');
-      const b = params.get('bound');
-      if (isPersonaId(p)) useStore.getState().setPersona(p);
-      if (b === 'default') useStore.getState().setBound(null);
-      else if (isBoundId(b)) useStore.getState().setBound(b);
-      startLive();
-    });
+    try {
+      localStorage.removeItem(LEGACY_REMIX_KEY);
+    } catch {
+      /* storage blocked */
+    }
+    startLive();
   }, []);
 
   useEffect(() => {
