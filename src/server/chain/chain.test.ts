@@ -23,6 +23,11 @@ describe('decodeLaunch', () => {
     const D = '0x4444444444444444444444444444444444444444';
     expect(decodeLaunch(log([TOPICS.ponsCreated, topic(A), topic(B), topic(C)], `0x${pad(D)}${pad('0x0')}${pad('0x3a')}`))).toMatchObject({ tokenB: D }); // quoted in a stock token
     expect(decodeLaunch(log([TOPICS.transfer, topic(A), topic(B)]))).toBeNull();
+    // Same signature, fewer indexed fields: skipped instead of crashing the scan
+    expect(decodeLaunch(log([TOPICS.v2PairCreated], `0x${pad(A)}${pad(B)}${pad(C)}${pad('0x1')}`))).toBeNull();
+    expect(decodeLaunch(log([TOPICS.v3PoolCreated, topic(A), topic(B)], `0x${pad('0x3c')}${pad(C)}`))).toBeNull();
+    expect(decodeLaunch(log([TOPICS.v4Initialize, id]))).toBeNull();
+    expect(decodeLaunch(log([TOPICS.ponsCreated, topic(A)]))).toBeNull();
   });
 
   it('decodes ABI strings and bytes32 names', () => {

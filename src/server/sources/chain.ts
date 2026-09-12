@@ -114,7 +114,11 @@ export class ChainSource {
     errors: 0,
     head: 0,
     lastTickAt: '',
+    liveStage: '', // what the live tick is doing right now
     lastError: '',
+    errorsByStage: {} as Record<string, number>,
+    lastErrors: {} as Record<string, string>,
+    cursors: { backfill: 0, slow: 0, live: 0, from: 0 },
     gecko: {} as GeckoClient['stats'],
   };
   private readonly rpc: RpcClient;
@@ -290,6 +294,7 @@ export class ChainSource {
 
   /** Follow the head: discover launches, label those that turned 48h, watch the rest. Public for tests. */
   async liveTick() {
+    this.stats.liveStage = 'reading launches';
     const head = await this.rpc.blockNumber();
     this.stats.head = head;
     if (head > this.scannedTo) {
@@ -305,13 +310,17 @@ export class ChainSource {
     const now = this.now();
     const matured = [...this.young.values()].filter((c) => c.launchedAt + WINDOW_MS <= now).slice(0, MATURED_PER_TICK);
     if (matured.length) {
+      this.stats.liveStage = `labelling ${matured.length} tokens that turned 48h`;
       await this.resolvePons(matured.filter((c) => c.curve), true);
       this.slowLive.push(...matured.filter((c) => !c.curve));
       matured.forEach((c) => this.young.delete(c.token));
       this.retrainIfDue();
     }
+    this.stats.liveStage = 'following curve trades';
     await this.scanCurveTrades(head, now);
+    this.stats.liveStage = 'updating the watch list';
     await this.watch(now);
+    this.stats.liveStage = 'fetching logos';
     await this.fetchLogos(false);
 
     this.stats.slowQueued = this.slowLive.length;
@@ -322,6 +331,7 @@ export class ChainSource {
       this.save();
     }
     this.stats.lastTickAt = new Date(now).toISOString();
+    this.stats.liveStage = 'idle';
   }
 
   private async launches(from: number, to: number, count: boolean): Promise<(PoolLaunch & { at: number })[]> {
@@ -672,9 +682,18 @@ export class ChainSource {
   }
 
   private fail(stage: string, err: unknown) {
+    const message = String((err as Error)?.message ?? err).slice(0, 200);
+    // The first frames of the stack say which call failed; Railway logs are not always at hand.
+    const where = String((err as Error)?.stack ?? '')
+      .split('\n')
+      .slice(1, 4)
+      .map((line) => line.trim().replace(/^at /, '').replace(/\(?(?:file:\/\/)?\/app\//, '('))
+      .join(' ← ');
     this.stats.errors++;
-    this.stats.lastError = `${new Date(this.now()).toISOString()} ${stage}: ${(err as Error).message.slice(0, 200)}`;
-    this.o.log?.(`chain ${stage}: ${(err as Error).message}`);
+    this.stats.errorsByStage[stage] = (this.stats.errorsByStage[stage] ?? 0) + 1;
+    this.stats.lastErrors[stage] = `${new Date(this.now()).toISOString()} ${message}${where ? ` @ ${where}` : ''}`;
+    this.stats.lastError = `${new Date(this.now()).toISOString()} ${stage}: ${message}`;
+    this.o.log?.(`chain ${stage}: ${message}`);
   }
 
   private load(): SavedState | null {
@@ -690,7 +709,9 @@ export class ChainSource {
   }
 
   private save() {
-    if (!this.o.stateFile || !this.state) return;
+    if (!this.state) return;
+    this.stats.cursors = { backfill: this.state.backfillCursor, slow: this.state.slowCursor, live: this.state.liveFrom, from: this.state.backfillFrom };
+    if (!this.o.stateFile) return;
     this.state.rejected = [...this.rejected];
     const tmp = `${this.o.stateFile}.tmp`;
     writeFileSync(tmp, JSON.stringify(this.state));

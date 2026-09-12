@@ -10,3 +10,4 @@ coverage
 *.local
 .agents
 skills-lock.json
+backend

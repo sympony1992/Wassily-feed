@@ -40,14 +40,20 @@ export const wordAddress = (data: string, index: number) => `0x${data.slice(2 + 
 export function decodeLaunch(log: { topics: string[]; data: string; blockNumber: string }): PoolLaunch | null {
   const block = Number(log.blockNumber);
   const [topic, t1, t2, t3] = log.topics;
+  // Any contract can emit an event with the same signature but fewer indexed fields; those logs are not launches.
+  const shaped = (topics: number, dataWords: number) => log.topics.length >= topics && log.data.length >= 2 + dataWords * 64;
   switch (topic) {
     case TOPICS.v2PairCreated:
+      if (!shaped(3, 1)) return null;
       return { kind: 'v2', pool: wordAddress(log.data, 0), tokenA: topicAddress(t1), tokenB: topicAddress(t2), block };
     case TOPICS.v3PoolCreated:
+      if (!shaped(4, 2)) return null;
       return { kind: 'v3', pool: wordAddress(log.data, 1), tokenA: topicAddress(t1), tokenB: topicAddress(t2), block };
     case TOPICS.v4Initialize:
+      if (!shaped(4, 0)) return null;
       return { kind: 'v4', pool: t1.toLowerCase(), tokenA: topicAddress(t2), tokenB: topicAddress(t3), block };
     case TOPICS.ponsCreated: {
+      if (!shaped(4, 0)) return null;
       const quote = log.data.length >= 66 ? wordAddress(log.data, 0) : NATIVE;
       return { kind: 'pons', pool: topicAddress(t2), tokenA: topicAddress(t1), tokenB: quote === NATIVE ? WETH : quote, creator: topicAddress(t3), block };
     }
