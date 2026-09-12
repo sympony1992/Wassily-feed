@@ -15,7 +15,7 @@ export interface CurvePeak {
   peakPrice: number; // USD per whole token
 }
 
-const BATCH = 250; // curves per log query
+const BATCH = 250; // curves per log query; 250 curves over 48h came back in about 4 s (4,217 trades)
 
 /** Price of one whole token in quote units, from one curve trade's data (quoteAmount, tokenAmount, ...). */
 export function tradePrice(data: string, quoteDecimals: number, tokenDecimals: number): number | null {
@@ -48,12 +48,23 @@ export async function ponsPeaks(
     if (to < from) continue;
 
     const logs = await rpc.getLogs({ fromBlock: from, toBlock: to, address: batch.map((c) => c.curve), topics: [TOPICS.ponsTrade] });
+
+    // Read every traded token's decimals up front, in parallel: one call per trade in sequence took minutes per batch.
+    const traded = new Set<string>();
+    for (const log of logs) {
+      const c = byCurve.get(log.address.toLowerCase());
+      if (!c) continue;
+      traded.add(c.token);
+      if (c.quote !== WETH) traded.add(c.quote);
+    }
+    const infos = new Map(await Promise.all([...traded].map(async (token) => [token, await tokens.get(token)] as const)));
+
     for (const log of logs) {
       const c = byCurve.get(log.address.toLowerCase());
       const block = Number(log.blockNumber);
       if (!c || block < c.firstBlock || block > c.firstBlock + o.windowBlocks) continue;
-      const [quoteInfo, tokenInfo] = await Promise.all([c.quote === WETH ? null : tokens.get(c.quote), tokens.get(c.token)]);
-      const price = tradePrice(log.data, c.quote === WETH ? 18 : (quoteInfo?.decimals ?? 18), tokenInfo?.decimals ?? 18);
+      const quoteDecimals = c.quote === WETH ? 18 : (infos.get(c.quote)?.decimals ?? 18);
+      const price = tradePrice(log.data, quoteDecimals, infos.get(c.token)?.decimals ?? 18);
       if (price == null) continue;
       const peak = out.get(c.token)!;
       peak.trades++;

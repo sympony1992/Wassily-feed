@@ -82,7 +82,7 @@ const QUOTE_MIN_POOLS = 8; // a token paired in this many launches of one step i
 const OLDER_TOKEN_MS = 6 * HOUR; // pairs older than the launch by this much mean an existing token found a new pool
 const RETRAIN_AT = [20, 200, 1000, 2000]; // labelled counts that trigger an early retrain
 const SLOW_LIVE_BATCH = 10;
-const MATURED_PER_TICK = 400; // after a restart the backlog is labelled in slices, so every tick finishes and saves its place
+const MATURED_PER_TICK = 150; // after a restart the backlog is labelled in slices, so every tick finishes and saves its place
 const HOLDERS_PARALLEL = 3;
 const LOGO_MAX_BACKLOG_MS = 10_000; // logos only decorate the feed: fetch them when GeckoTerminal is idle
 const WATCH_SCAN_MAX_BLOCKS = 5_000;
@@ -120,6 +120,7 @@ export class ChainSource {
     lastErrors: {} as Record<string, string>,
     cursors: { backfill: 0, slow: 0, live: 0, from: 0 },
     gecko: {} as GeckoClient['stats'],
+    rpc: {} as RpcClient['stats'],
   };
   private readonly rpc: RpcClient;
   private readonly gecko: GeckoClient;
@@ -144,11 +145,12 @@ export class ChainSource {
     private readonly agent: Agent,
     private readonly o: ChainOptions,
   ) {
-    this.rpc = new RpcClient(o.rpcUrl, { fetchImpl: o.fetchImpl, log: o.log });
+    this.rpc = new RpcClient(o.rpcUrl, { fetchImpl: o.fetchImpl, log: o.log, concurrency: 4 });
     this.gecko = new GeckoClient({ network: o.network, api: o.geckoApi, perMinute: o.geckoPerMinute, fetchImpl: o.fetchImpl, sleep: o.sleep, now: o.now, log: o.log });
     this.tokenInfo = new TokenInfoCache(this.rpc);
     this.prices = new QuotePrices(this.gecko, () => Math.floor(this.now() / 1000));
     this.stats.gecko = this.gecko.stats;
+    this.stats.rpc = this.rpc.stats;
     this.trainedAt = agent.labelled().length;
   }
 

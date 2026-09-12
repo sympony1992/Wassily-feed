@@ -42,6 +42,8 @@ const hex = (n: number) => `0x${n.toString(16)}`;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export class RpcClient {
+  /** Counters for /api/health: where the time goes when the node pushes back. */
+  readonly stats = { calls: 0, throttled: 0, timeouts: 0, retries: 0, splits: 0, active: 0, waiting: 0 };
   private active = 0;
   private readonly waiting: (() => void)[] = [];
   private nextId = 0;
@@ -59,6 +61,7 @@ export class RpcClient {
         return await this.withSlot(() => this.send<T>(method, params));
       } catch (err) {
         if (!(err instanceof RpcError) || !err.retryable || attempt >= retries) throw err;
+        this.stats.retries++;
         await sleep(Math.min(30_000, 1_000 * 2 ** attempt));
       }
     }
@@ -105,6 +108,7 @@ export class RpcClient {
       const tooBig = err instanceof RpcError && (!err.retryable || err.timedOut);
       if (!tooBig || toBlock - fromBlock < (this.o.minSpan ?? 50)) throw err;
       const mid = Math.floor((fromBlock + toBlock) / 2);
+      this.stats.splits++;
       this.o.log?.(`getLogs ${fromBlock}-${toBlock}: ${(err as Error).message.slice(0, 100)}; splitting`);
       const left = await this.getLogs({ ...filter, toBlock: mid });
       const right = await this.getLogs({ ...filter, fromBlock: mid + 1 });
@@ -113,12 +117,18 @@ export class RpcClient {
   }
 
   private async withSlot<T>(fn: () => Promise<T>): Promise<T> {
-    while (this.active >= (this.o.concurrency ?? 3)) await new Promise<void>((resolve) => this.waiting.push(resolve));
+    while (this.active >= (this.o.concurrency ?? 3)) {
+      this.stats.waiting = this.waiting.length + 1;
+      await new Promise<void>((resolve) => this.waiting.push(resolve));
+    }
     this.active++;
+    this.stats.active = this.active;
+    this.stats.waiting = this.waiting.length;
     try {
       return await fn();
     } finally {
       this.active--;
+      this.stats.active = this.active;
       this.waiting.shift()?.();
     }
   }
@@ -126,6 +136,7 @@ export class RpcClient {
   private async send<T>(method: string, params: unknown[]): Promise<T> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.o.timeoutMs ?? 90_000);
+    this.stats.calls++;
     try {
       const res = await (this.o.fetchImpl ?? fetch)(this.url, {
         method: 'POST',
@@ -133,6 +144,7 @@ export class RpcClient {
         body: JSON.stringify({ jsonrpc: '2.0', id: ++this.nextId, method, params }),
         signal: controller.signal,
       });
+      if (res.status === 429) this.stats.throttled++;
       if (res.status === 429 || res.status >= 500) throw new RpcError(`${method} → HTTP ${res.status}`, true);
       if (!res.ok) throw new RpcError(`${method} → HTTP ${res.status}`, false);
       const body = (await res.json()) as { result?: T; error?: { code: number; message: string } };
@@ -140,6 +152,7 @@ export class RpcClient {
       return body.result as T;
     } catch (err) {
       if (err instanceof RpcError) throw err;
+      if (controller.signal.aborted) this.stats.timeouts++;
       if (controller.signal.aborted) throw new RpcError(`${method}: timed out`, method !== 'eth_getLogs', true); // a slow log query is split instead
       throw new RpcError(`${method}: ${(err as Error).message}`, true); // network failure
     } finally {
