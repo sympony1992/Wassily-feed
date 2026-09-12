@@ -68,7 +68,8 @@ const MINT_LOOKBACK = 900_000; // about a day of blocks before the first pool, w
 const QUOTE_MIN_POOLS = 8; // a token paired in this many launches of one step is a quote asset, not a launch
 const OLDER_TOKEN_MS = 6 * HOUR; // pairs older than the launch by this much mean an existing token found a new pool
 const RETRAIN_AT = [20, 200, 1000, 2000]; // labelled counts that trigger an early retrain
-const SCREEN_BATCHES = 6; // screening calls per tick for young tokens, so labelling keeps most of the API budget
+const SCREEN_BATCHES = 2; // screening calls per tick for young tokens, so labelling keeps most of the API budget
+const SCREEN_MAX_BACKLOG_MS = 30_000; // screening only decorates the feed: skip it while labelling is queued
 const HUES = [38, 152, 268, 196, 12, 88, 320];
 
 /** Uniform, restart-stable sample: a token is in or out depending on its address alone. */
@@ -94,6 +95,7 @@ export class ChainSource {
     errors: 0,
     head: 0,
     lastTickAt: '',
+    lastError: '',
     gecko: {} as GeckoClient['stats'],
   };
   private readonly rpc: RpcClient;
@@ -132,8 +134,7 @@ export class ChainSource {
       try {
         await this.init();
       } catch (err) {
-        this.stats.errors++;
-        this.o.log?.(`chain: start failed (${(err as Error).message}); retrying in 60 s`);
+        this.fail('start', err);
         if (!this.stopped) this.timer = setTimeout(boot, 60_000);
         return;
       }
@@ -142,14 +143,19 @@ export class ChainSource {
         try {
           await this.liveTick();
         } catch (err) {
-          this.stats.errors++;
-          this.o.log?.(`chain: ${(err as Error).message}`);
+          this.fail('live', err);
         }
         if (!this.stopped) this.timer = setTimeout(tick, this.o.pollSeconds * 1000);
       };
       void tick();
     };
     void boot();
+  }
+
+  private fail(stage: string, err: unknown) {
+    this.stats.errors++;
+    this.stats.lastError = `${new Date(this.now()).toISOString()} ${stage}: ${(err as Error).message.slice(0, 200)}`;
+    this.o.log?.(`chain ${stage}: ${(err as Error).message}`);
   }
 
   stop() {
@@ -197,8 +203,7 @@ export class ChainSource {
       try {
         await this.backfillStep();
       } catch (err) {
-        this.stats.errors++;
-        this.o.log?.(`chain backfill: ${(err as Error).message}`);
+        this.fail('backfill', err);
         await this.wait(30_000);
       }
     }
@@ -371,12 +376,13 @@ export class ChainSource {
     const due = [...this.young.values()]
       .filter((c) => now - c.launchedAt >= 30 * 60_000 && now >= (c.nextScreenAt ?? 0))
       .sort((a, b) => b.launchedAt - a.launchedAt);
-    const curves = due.filter((c) => c.curve).slice(0, SCREEN_BATCHES * 30);
+    const busy = this.gecko.backlogMs() > SCREEN_MAX_BACKLOG_MS;
+    const curves = busy ? [] : due.filter((c) => c.curve).slice(0, SCREEN_BATCHES * 30);
     const others = due.filter((c) => !c.curve).slice(0, SCREEN_BATCHES * 30);
     [...curves, ...others].forEach((c) => (c.nextScreenAt = now + Math.max(HOUR, (now - c.launchedAt) / 2)));
 
     const pending = [...this.agent.tokens.values()].filter((t) => t.status === 'pending').map((t) => t.mint.toLowerCase());
-    const pendingCurves = pending.map((t) => this.young.get(t)).filter((c): c is Candidate => !!c?.curve);
+    const pendingCurves = busy ? [] : pending.map((t) => this.young.get(t)).filter((c): c is Candidate => !!c?.curve).slice(0, SCREEN_BATCHES * 30);
     const seen = new Map<string, { cap: number; name?: string; symbol?: string; logo?: string }>();
 
     // Bonding curves are on GeckoTerminal only.

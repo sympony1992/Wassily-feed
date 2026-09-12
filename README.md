@@ -6,7 +6,7 @@
   <img src="public/videos/hero-poster.jpg" alt="Wassily at a desk at night: a chalkboard of equations, a brass lamp and a glass jar of coins" width="100%">
 </p>
 
-Wassily watches new Robinhood Chain tokens that clear **$10K peak market cap** and learns which ones go on to reach **$30K**. It never trusts its raw score. It fills a jar only with a **proven floor**: the measured AUC minus the penalty given by **Hoeffding's inequality**. On a thin sample the penalty is large and the jar stays empty, by design.
+Wassily reads every token launch on Robinhood Chain straight from the chain, keeps the ones that clear **$10K peak market cap** and learns which go on to reach **$30K**. It never trusts its raw score. It fills a jar only with a **proven floor**: the measured AUC minus the penalty given by **Hoeffding's inequality**. On a thin sample the penalty is large and the jar stays empty, by design.
 
 **Live site:** https://wassily-feed-production.up.railway.app
 
@@ -30,8 +30,8 @@ Every launch on Robinhood Chain is a coin of unknown bias. One flip says nothing
 
 ```mermaid
 flowchart TD
-  A["Discover<br/>DexScreener profiles and boosts, every 60 s"] --> B["Admit<br/>only tokens first seen within 6 h of launch"]
-  B --> C["Watch<br/>track the peak market cap, never the current one"]
+  A["Discover<br/>every pool launch, read from the Robinhood Chain RPC"] --> B["Admit<br/>tokens launched against WETH, ETH, USDG or a stock token"]
+  B --> C["Measure<br/>peak market cap in the first 48 h, from hourly candles"]
   C --> D{"48 h after launch"}
   D -->|peak below $10K| X["Leaves the study"]
   D -->|peak at or above $30K| P["Passed"]
@@ -46,15 +46,17 @@ flowchart TD
 
 ![A desk seen from above: a pile of coins, a sorting tray, an hourglass and a jar, linked by chalk arrows](docs/images/how-it-works.jpg)
 
-1. **Discover.**
-   - Poll DexScreener `token-profiles/latest` and `token-boosts/latest` and keep tokens on `robinhood`.
-   - The profile description becomes the token's lore, after sanitising.
-2. **Admit.** Only tokens first seen within 6 hours of launch join the study. For anything older, the peak before Wassily started watching is unknowable.
-3. **Watch.** Price up to 30 addresses per call and keep the **peak** market cap. A token that touched $25K and fell back still crossed $10K.
-4. **Label.** Each token is labelled once, 48 hours after launch:
+1. **Discover.** Every block is read from the Robinhood Chain RPC for pool launches: Uniswap v2 `PairCreated`, v3 `PoolCreated`, v4 `Initialize`, and the Pons launchpad's curve creation.
+   - A launch counts when the token is paired against a quote asset (WETH, ETH, USDG or a tokenized stock).
+   - An existing token that merely opens a new pool is not a launch.
+2. **Measure.** 48 hours after launch, the token's **peak** market cap is its highest hourly price over those 48 hours, from GeckoTerminal's candles for every pool it trades in (the Pons curve included), times its total supply. A token that touched $25K and fell back still crossed $10K.
+3. **Label.** Each token is labelled once:
    - peak below $10K: it leaves the study;
    - peak at or above $30K: *passed*;
    - anything in between: *stalled*.
+
+   Its holder count at 48 hours is replayed from its ERC-20 `Transfer` events.
+4. **Backfill.** On first start the last 14 days of launches are labelled the same way, newest first, as a uniform 10% random sample (`BACKFILL_DAYS`, `BACKFILL_SAMPLE`), so the study starts with real history instead of an empty jar. New launches are all checked.
 5. **Learn.** Every cycle (hourly in live mode) Wassily fits a class-balanced, L2-regularised logistic regression by Newton's method (IRLS). It then checks the fit three ways:
    - 5-fold cross-validation;
    - a train-on-past, test-on-future split;
@@ -71,9 +73,9 @@ flowchart TD
 | Day of week | 7 |
 | Holder count, sampled once at 48 h | 1 |
 | Text shape: lore length, missing-lore flag, words in the name | 3 |
-| Lore words, hashed into buckets | 15 |
+| Lore words, hashed into buckets | 15 (zero on live data, see below) |
 
-Nothing derived from price, volume or liquidity is ever a feature.
+Nothing derived from price, volume or liquidity is ever a feature. A token's description cannot be observed for past launches, so on live data the lore columns stay zero and no token trains on its lore.
 
 ---
 
@@ -154,19 +156,21 @@ Ideas are published for transparency. Wassily does not deploy them.
   - **LIVE** appears only while the server ingests real tokens.
   - A simulated market is labelled **SIMULATED**.
   - Pages say **Connecting…** until the server answers.
+- **Real history, never invented.** The backfill labels past launches from the chain and their actual trades. Nothing is seeded or adjusted by hand.
 - **Warming up.**
-  - The first labels arrive 48 hours after launch.
+  - While the backfill runs, the jar card shows how far back it has reached.
   - Until real labels exist, AUC, floor and model weights read "—".
   - The jar shows `labelled / 2,000`, the tokens being watched, and a countdown to the next label.
-- **Real logos only.** Token icons are the ones teams published on DexScreener. A token without one keeps an empty slot; Wassily never draws one.
+- **Real logos only.** Token icons are the ones teams published on DexScreener or GeckoTerminal. A token without one keeps an empty slot; Wassily never draws one.
 - **Open data.** Every number is computed. Download `/api/dataset.csv` and `/api/methodology.json` to check the work.
 
 ![A brass hourglass beside a row of coins and an empty jar](docs/images/warming-up.jpg)
 
 **Known limits** (also stated in `methodology.json`):
-- **Holder counts.** Robinhood Chain's explorer ([Blockscout](https://robinhoodchain.blockscout.com/)) blocks server requests. Holders are imputed with the median unless `HOLDERS_API_URL` points at a keyed endpoint, such as the [Blockscout Pro API](https://docs.blockscout.com/robinhood-api).
-- **Sampling bias.** Discovery covers tokens that appear in DexScreener profiles or boosts, not every deployment.
-- **Missing fields.** DexScreener does not provide the deployer or the block number.
+- **Sampled history.** The backfill looks up a random 10% of past launches to fit GeckoTerminal's free tier (about 28 calls a minute). The sample is uniform by address, so it is unbiased, but smaller than a census.
+- **Hourly resolution.** Peaks come from hourly candles of executed trades; a spike inside an hour counts at that hour's high.
+- **Unusual quote assets.** A token launched only against a rarely used quote asset may be missed.
+- **No lore.** Descriptions are not on-chain, so lore is not a live feature.
 
 ---
 
@@ -209,8 +213,8 @@ All routes are read-only and same-origin.
 
 | Route | Returns |
 |---|---|
-| `GET /api/health` | Source, token count, warm-up and ingest stats |
-| `GET /api/state` | Counters, warm-up, findings, the latest model (AUC, σ, gates, floor, jar) and the 400 newest tokens |
+| `GET /api/health` | Source, token count, warm-up and chain ingest stats |
+| `GET /api/state` | Counters, warm-up, backfill progress, findings, the latest model (AUC, σ, gates, floor, jar) and the 400 newest tokens |
 | `GET /api/stream` | Server-Sent Events: `{token, counters}` per token, `{model, counters}` per retrain |
 | `GET /api/model/history?days=30` | Model runs over time |
 | `GET /api/dataset.csv` · `GET /api/methodology.json` | Open data |
@@ -224,8 +228,8 @@ All routes are read-only and same-origin.
 ```bash
 npm install
 npm run dev          # simulated market                  → http://localhost:3000
-npm run dev:live     # real Robinhood Chain tokens via DexScreener
-npm test             # 30 tests: math, calibration, engine, route handlers, SSE, live ingest
+npm run dev:live     # real Robinhood Chain launches, read on-chain
+npm test             # 40 tests: math, calibration, engine, route handlers, SSE, chain ingest
 npm run build        # tsc --noEmit + next build
 npm start            # production server (npm run start:live for real data)
 ```
@@ -243,11 +247,11 @@ See `.env.example`.
   - `NEXT_PUBLIC_DEFAULT_PERSONA=hoeffding` (Wassily);
   - `NEXT_PUBLIC_HERO_VIDEO` and `NEXT_PUBLIC_HERO_POSTER`, which default to the files in `public/videos/`.
 - **Server values** are read at runtime:
-  - `DATA_SOURCE` (`dexscreener` for live data);
+  - `DATA_SOURCE` (`chain` for live data; `dexscreener` is an older alias);
   - `PERSONA=hoeffding`;
-  - `CYCLE_SECONDS`, `POLL_SECONDS`, `MAX_DISCOVERY_AGE_HOURS`;
-  - `HOLDERS_API_URL`;
-  - `PERSIST` and `DATA_DIR`.
+  - `RPC_URL`, `GECKO_API`, `GECKO_PER_MINUTE`;
+  - `BACKFILL_DAYS` (default 14) and `BACKFILL_SAMPLE` (default 0.1);
+  - `CYCLE_SECONDS`, `POLL_SECONDS`, `PERSIST` and `DATA_DIR`.
 
 ## Deploy
 
@@ -271,18 +275,19 @@ src/
   views/        client views for each page
   components/   shell/ overview/ analytics/ ideas/ lab/ layout/ ui/
   client/       live.ts: /api/state snapshot + /api/stream SSE into the store
-  server/       runtime, agent, config, persist, serialize, sources/{dexscreener,simulated}
+  server/       runtime, agent, config, persist, serialize, chain/{rpc,abi,gecko,holders}, sources/{chain,simulated,dexscreener}
   engine/       features, model (IRLS), trainer, ideas, ledger, proof, findings, sanitize, simulator
   math/         stats, auc, bounds, sha256
   config/       site.ts (study and jar settings), personas.ts (Wassily's copy and vocabulary)
 public/videos/  hero.mp4, hero-poster.jpg
-data/           state.json + commitments.jsonl (git-ignored)
+data/           state.json, commitments.jsonl, chain.json (backfill progress; git-ignored)
 ```
 
 ## Credits
 
 - **The name.** Wassily is named in honour of Wassily Hoeffding. The project is not affiliated with or endorsed by him, his family, or any university.
 - **The idea.** The survival-jar pattern was inspired by emilelearns.run. This is an independent rewrite; no code, branding or assets were reused.
+- **The data.** Launches and transfers from the Robinhood Chain RPC, prices from GeckoTerminal, token logos from DexScreener and GeckoTerminal.
 - **The artwork.** The hero image and video were AI-generated for this project.
 
 *Not financial advice. Wassily estimates whether a token that already reached $10K goes on to reach $30K. It does not predict price.*

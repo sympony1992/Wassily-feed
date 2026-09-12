@@ -2,7 +2,7 @@
 
 Semua konfigurasi sudah ada di repo. `railway.json` memilih `Dockerfile`, health check `/api/health`, 1 replica, dan App Sleeping dimatikan. Kamu cukup mengikuti langkah di bawah.
 
-> Aplikasi ini **satu proses yang harus hidup terus** (pengambil data berjalan di dalamnya). Jangan tambah replica, jangan nyalakan App Sleeping, dan wajib pasang **Volume di `/data`** supaya data tidak hilang saat redeploy.
+> Aplikasi ini **satu proses yang harus hidup terus** (pembaca data chain berjalan di dalamnya). Jangan tambah replica, jangan nyalakan App Sleeping, dan wajib pasang **Volume di `/data`** supaya data dan progres backfill tidak hilang saat redeploy.
 
 ---
 
@@ -36,7 +36,7 @@ git push -u origin main
 
 Buka service → **Settings**, atau klik kanan canvas → **Volume** → buat volume dengan **Mount path: `/data`**.
 
-Tanpa volume, semua token yang sudah dikumpulkan hilang setiap kali deploy ulang.
+Tanpa volume, semua token berlabel dan progres backfill hilang setiap kali deploy ulang.
 
 ## 4. Isi Variables
 
@@ -45,7 +45,7 @@ Buka service → tab **Variables** → **Raw Editor**, lalu paste dan sesuaikan:
 ```env
 # Wajib
 PORT=3000
-DATA_SOURCE=dexscreener
+DATA_SOURCE=chain
 DATA_DIR=/data
 
 # Brand (tampil di situs). Kosongkan kalau belum ada.
@@ -53,22 +53,19 @@ NEXT_PUBLIC_CONTRACT_ADDRESS=
 NEXT_PUBLIC_GITHUB_URL=
 NEXT_PUBLIC_X_URL=
 
-# Persona dan rumus awal
+# Persona dan rumus
 NEXT_PUBLIC_DEFAULT_PERSONA=hoeffding
-NEXT_PUBLIC_DEFAULT_BOUND=
 PERSONA=hoeffding
 
-# Video hero (default sudah benar kalau file ada di public/videos/hero.mp4)
-NEXT_PUBLIC_HERO_VIDEO=/videos/hero.mp4
-
-# Opsional: endpoint explorer ber-API-key untuk jumlah holder asli.
-# "{address}" diganti otomatis. Kosong = holder diisi nilai tengah.
-HOLDERS_API_URL=
+# Opsional: riwayat yang dilabeli saat pertama jalan
+BACKFILL_DAYS=14
+BACKFILL_SAMPLE=0.1
 ```
 
 Catatan:
+- `DATA_SOURCE=dexscreener` (nama lama) masih diterima dan artinya sama dengan `chain`.
 - Variabel `NEXT_PUBLIC_*` ditanam saat **build**. Setelah mengubahnya, klik **Redeploy**.
-- `HOLDERS_API_URL` hanya dibaca server dan tidak pernah dikirim ke browser, jadi aman berisi API key.
+- `BACKFILL_SAMPLE` = porsi token lama yang dicek, dipilih acak (0.1 = 10%). Makin besar makin lengkap, tapi makin lama karena GeckoTerminal gratis hanya ±28 panggilan per menit.
 
 ## 5. Buat domain publik
 
@@ -78,20 +75,20 @@ Kamu juga bisa memakai domain sendiri di bagian yang sama (**Custom Domain**) da
 
 ## 6. Cek hasilnya
 
-1. Buka `https://DOMAIN-KAMU/api/health`. Harus ada `"ok": true` dan `"source": "dexscreener"`.
+1. Buka `https://DOMAIN-KAMU/api/health`. Harus ada `"ok": true` dan `"source": "chain"`. Bagian `ingest` menunjukkan jumlah peluncuran yang terbaca, token yang dicek, dan yang berlabel.
 2. Buka `https://DOMAIN-KAMU`:
    - badge **Live Wassily feed**, dan sidebar tertulis **Live data**;
-   - dalam 1–2 menit token asli muncul di feed dengan status **watching**;
-   - jar menampilkan **Warming up** dengan hitung mundur ke label pertama.
-3. Tab **Deployments** → **View logs** harus menampilkan baris `[agent] LIVE robinhood via DexScreener`.
+   - kartu jar menampilkan **Labelling past launches … %** selama backfill berjalan;
+   - angka **Above $10K** dan **Reached $30K** mulai naik dalam hitungan menit.
+3. Tab **Deployments** → **View logs** harus menampilkan baris `[agent] LIVE robinhood from https://rpc.mainnet.chain.robinhood.com` dan `chain: labelling launches from block …`.
 
-**Yang perlu diingat:** volume produksi mulai kosong (data lokal di `data/` tidak ikut ter-upload). Label asli pertama muncul **48 jam setelah deploy**, dan jar baru bermakna setelah sekitar 2.000 token berlabel. Perkiraannya 2–3 minggu, tergantung aktivitas chain.
+**Yang perlu diingat:** saat pertama jalan, aplikasi melabeli riwayat 14 hari terakhir (sampel acak 10%) dari yang terbaru. Label pertama muncul dalam hitungan menit, dan backfill selesai sekitar 1,5 hari. Setelah itu setiap peluncuran baru dicek semua, tepat 48 jam setelah launch.
 
 ---
 
 ## Update berikutnya
 
-Cukup `git push`. Railway membangun ulang otomatis, dan data tetap aman di volume `/data`. Sebelum berhenti, aplikasi menyimpan data saat menerima sinyal stop.
+Cukup `git push`. Railway membangun ulang otomatis. Data, token berlabel, dan posisi backfill tetap aman di volume `/data`, jadi backfill melanjutkan dari posisi terakhir.
 
 ## Kalau ada masalah
 
@@ -100,9 +97,10 @@ Cukup `git push`. Railway membangun ulang otomatis, dan data tetap aman di volum
 | Build gagal di `npm ci` | `package-lock.json` tidak sinkron. Jalankan `npm install` di lokal, commit lockfile, lalu push lagi. |
 | Build gagal di `tsc --noEmit` | Ada error TypeScript. Jalankan `npm run build` di lokal untuk melihat pesannya. |
 | Health check gagal | Buka logs. Pastikan `PORT=3000` sama dengan port domain. |
-| Badge tertulis **Simulated** | `DATA_SOURCE` belum `dexscreener`. Perbaiki variabelnya, lalu Redeploy. |
+| Badge tertulis **Simulated** | `DATA_SOURCE` belum `chain` (atau `dexscreener`). Perbaiki variabelnya, lalu Redeploy. |
 | Data kembali kosong setelah deploy | Volume belum terpasang di `/data`, atau `DATA_DIR` bukan `/data`. |
-| Data berhenti bertambah | Pastikan App Sleeping mati dan replica = 1 (sudah diatur di `railway.json`). |
+| Backfill terasa lambat | Normal: GeckoTerminal gratis dibatasi ±28 panggilan/menit. Turunkan `BACKFILL_SAMPLE` untuk lebih cepat, atau naikkan untuk lebih lengkap. |
+| Log sering menulis `HTTP 429` | RPC atau GeckoTerminal sedang membatasi. Aplikasi menunggu lalu mencoba lagi sendiri; tidak ada data yang salah label. |
 | Brand/video belum berubah | Variabel `NEXT_PUBLIC_*` butuh **Redeploy** karena ditanam saat build. |
 
 ## Alternatif: Railway CLI (tanpa GitHub)

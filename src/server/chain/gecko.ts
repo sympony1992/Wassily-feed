@@ -1,6 +1,7 @@
 /**
  * GeckoTerminal's public API (no key). The free tier allows about 30 calls a
- * minute, so every request waits for its turn and backs off on 429.
+ * minute, but a shared cloud IP often gets less, so the pace adapts: it slows
+ * down on every 429 and creeps back up while calls succeed.
  */
 export interface GeckoPool {
   address: string; // as GeckoTerminal lists it: pair/pool address, or the v4 pool id
@@ -24,7 +25,7 @@ export interface GeckoToken {
 export interface GeckoOptions {
   network: string;
   api?: string;
-  perMinute?: number;
+  perMinute?: number; // the ceiling; the actual pace adapts below it
   fetchImpl?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
@@ -37,13 +38,20 @@ interface Resource<A> {
 }
 
 const BATCH = 30; // the multi endpoints accept up to 30 addresses
+const MIN_PER_MINUTE = 4;
 const stripNetwork = (id = '') => id.slice(id.indexOf('_') + 1).toLowerCase();
 
 export class GeckoClient {
-  readonly stats = { calls: 0, throttled: 0, failed: 0 };
+  readonly stats = { calls: 0, throttled: 0, failed: 0, perMinute: 0 };
   private nextAt = 0;
+  private readonly ceiling: number;
+  private pace: number;
 
-  constructor(private readonly o: GeckoOptions) {}
+  constructor(private readonly o: GeckoOptions) {
+    this.ceiling = o.perMinute ?? 28;
+    this.pace = this.ceiling;
+    this.stats.perMinute = this.pace;
+  }
 
   private now() {
     return this.o.now?.() ?? Date.now();
@@ -53,11 +61,15 @@ export class GeckoClient {
     return ms > 0 ? (this.o.sleep ?? ((t) => new Promise((resolve) => setTimeout(resolve, t))))(ms) : Promise.resolve();
   }
 
+  /** How long a call made now would wait for its turn. */
+  backlogMs() {
+    return Math.max(0, this.nextAt - this.now());
+  }
+
   private async get<T>(path: string): Promise<T | null> {
-    const gap = 60_000 / (this.o.perMinute ?? 28);
-    for (let attempt = 0; attempt < 4; attempt++) {
+    for (let attempt = 0; attempt < 6; attempt++) {
       const at = Math.max(this.now(), this.nextAt);
-      this.nextAt = at + gap;
+      this.nextAt = at + 60_000 / this.pace;
       await this.wait(at - this.now());
       this.stats.calls++;
       try {
@@ -66,16 +78,20 @@ export class GeckoClient {
         });
         if (res.status === 429) {
           this.stats.throttled++;
-          this.nextAt = this.now() + 30_000;
+          this.pace = Math.max(MIN_PER_MINUTE, this.pace * 0.7);
+          this.nextAt = Math.max(this.nextAt, this.now() + 10_000);
+          this.stats.perMinute = Math.round(this.pace * 10) / 10;
           continue;
         }
+        this.pace = Math.min(this.ceiling, this.pace + 0.2);
+        this.stats.perMinute = Math.round(this.pace * 10) / 10;
         if (res.status === 404) return null;
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return (await res.json()) as T;
       } catch (err) {
         this.stats.failed++;
         this.o.log?.(`geckoterminal ${path.slice(0, 60)}: ${(err as Error).message}`);
-        this.nextAt = this.now() + 5_000 * (attempt + 1);
+        this.nextAt = Math.max(this.nextAt, this.now() + 5_000 * (attempt + 1));
       }
     }
     // Unanswered is not the same as "no data": callers must retry later instead of drawing conclusions.
