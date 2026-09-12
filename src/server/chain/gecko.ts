@@ -185,6 +185,12 @@ export class GeckoClient {
     return (body?.data?.attributes?.ohlcv_list ?? []).map(([t, , , , close]) => [t, close]);
   }
 
+  /** The first pools GeckoTerminal lists for a token (its deepest markets). */
+  async topPools(token: string, limit = 3, lane: GeckoLane = 'high'): Promise<string[]> {
+    const body = await this.get<{ data?: Resource<{ address: string }>[] }>(`/tokens/${token}/pools?page=1`, lane);
+    return (body?.data ?? []).slice(0, limit).map((p) => p.attributes.address.toLowerCase());
+  }
+
   /** The pool GeckoTerminal lists first for a token (its deepest market), or null. */
   async topPool(token: string, lane: GeckoLane = 'high'): Promise<string | null> {
     const body = await this.get<{ data?: Resource<{ address: string }>[] }>(`/tokens/${token}/pools?page=1`, lane);

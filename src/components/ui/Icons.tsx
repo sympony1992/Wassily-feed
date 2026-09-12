@@ -134,6 +134,13 @@ export const IconFlask = ({ className }: IconProps) => (
   </svg>
 );
 
+export const IconBot = ({ className }: IconProps) => (
+  <svg {...svg(className)} {...stroke}>
+    <rect x="4" y="8" width="16" height="12" rx="3" />
+    <path d="M12 8V4.5M9 13.5h.01M15 13.5h.01M9.5 17h5M2 13v3M22 13v3" />
+  </svg>
+);
+
 export const IconSun = ({ className }: IconProps) => (
   <svg {...svg(className)} {...stroke}>
     <circle cx="12" cy="12" r="4" />

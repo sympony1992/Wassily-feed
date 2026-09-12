@@ -207,6 +207,7 @@ The **Formula Lab** (`/lab`) puts Hoeffding next to eight other bounds on the sa
 - **Console `/console`:** uptime, the cycle countdown, the learning pipeline, survival by launch hour, and lore words ranked by survival lift.
 - **Brain `/brain`:** the 100 committed ideas per cycle, in-browser sha256 verification, the generator's real source, and the revised-out and theft records.
 - **Formula Lab `/lab`:** evidence sliders, a floor-versus-n chart, and the bound comparison.
+- **Trade Bot `/bot` (coming soon):** the draft trading rules and a dry run of them on watched tokens, with a per-token analysis. No wallet, no orders.
 - **About `/about`:** disclaimer, methodology, `dataset.csv` and `methodology.json`.
 
 ## API

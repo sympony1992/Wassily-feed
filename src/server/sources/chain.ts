@@ -6,7 +6,7 @@ import { LAUNCH_TOPICS, NATIVE, TOPICS, WETH, decodeLaunch, type PoolLaunch } fr
 import { GeckoClient, type GeckoLane } from '../chain/gecko';
 import { holdersAt } from '../chain/holders';
 import { ponsPeaks, tradePrice } from '../chain/pons';
-import { QuotePrices } from '../chain/prices';
+import { NoPriceError, QuotePrices } from '../chain/prices';
 import { RpcClient } from '../chain/rpc';
 import { TokenInfoCache } from '../chain/tokens';
 import { dexImageUrl } from './dexImage';
@@ -115,6 +115,7 @@ export class ChainSource {
     labelled: 0,
     belowEntry: 0,
     neverTraded: 0,
+    unpriced: 0, // Pons tokens whose quote asset had no USD price for those hours: left out, not guessed
     slowQueued: 0,
     holdersQueued: 0,
     logosQueued: 0,
@@ -426,6 +427,11 @@ export class ChainSource {
     for (const c of open) {
       this.stats.checked++;
       const peak = peaks.get(c.token);
+      if (peak?.unpriced) {
+        this.stats.unpriced++;
+        this.drop(c.token);
+        continue;
+      }
       const info = peak?.trades ? await this.tokenInfo.get(c.token) : null; // an untraded curve costs no further calls
       if (!peak?.trades || !info) {
         this.stats.neverTraded++;
@@ -619,7 +625,11 @@ export class ChainSource {
       const quoteInfo = quote === WETH ? null : (infos.get(quote) ?? null);
       const price = info ? tradePrice(log.data, quote === WETH ? 18 : (quoteInfo?.decimals ?? 18), info.decimals) : null;
       if (price == null || !info) continue;
-      c.peakCap = Math.max(c.peakCap ?? 0, price * (await this.prices.usdAt(quote, seconds)) * info.supply);
+      try {
+        c.peakCap = Math.max(c.peakCap ?? 0, price * (await this.prices.usdAt(quote, seconds)) * info.supply);
+      } catch (err) {
+        if (!(err instanceof NoPriceError)) throw err; // the feed simply skips a trade it cannot price
+      }
     }
   }
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { Dialog } from '@base-ui/react/dialog';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
@@ -8,9 +9,8 @@ import { SITE, fmtUsdK } from '@/config/site';
 import { cn } from '@/lib/cn';
 import { useBound, usePersona, useStore } from '@/store/useStore';
 import { CopyAddress } from '../layout/CopyAddress';
-import { IconClose, IconFlask, IconGitHub, IconGrid, IconInfo, IconMenu, IconSparkles, IconTerminal, IconX } from '../ui/Icons';
-import { PersonaMark } from '../ui/PersonaMark';
-import { StatusDot, buttonClass } from '../ui/primitives';
+import { IconBot, IconClose, IconFlask, IconGitHub, IconGrid, IconInfo, IconMenu, IconSparkles, IconTerminal, IconX } from '../ui/Icons';
+import { Badge, StatusDot, buttonClass } from '../ui/primitives';
 import { ThemeToggle } from './ThemeToggle';
 
 const NAV = [
@@ -18,6 +18,7 @@ const NAV = [
   { href: '/console', label: 'Console', Icon: IconTerminal },
   { href: '/brain', label: 'Brain', Icon: IconSparkles },
   { href: '/lab', label: 'Formula Lab', Icon: IconFlask },
+  { href: '/bot', label: 'Trade Bot', Icon: IconBot, soon: true },
   { href: '/about', label: 'About', Icon: IconInfo },
 ];
 
@@ -32,7 +33,7 @@ function Brand() {
   const persona = usePersona();
   return (
     <Link href="/" className="flex items-center gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-accent">
-      <PersonaMark persona={persona} className="size-10" />
+      <Image src="/logo.jpeg" alt="" width={40} height={40} priority className="size-10 shrink-0 rounded-lg object-cover" />
       <span className="min-w-0">
         <span className="block truncate text-base font-semibold text-fg">{persona.mascot}</span>
         <span className="block truncate text-xs text-muted">
@@ -55,7 +56,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       <Brand />
 
       <nav aria-label="Primary" className="flex flex-col gap-0.5">
-        {NAV.map(({ href, label, Icon }) => {
+        {NAV.map(({ href, label, Icon, soon }) => {
           const active = href === '/' ? pathname === '/' : pathname.startsWith(href);
           return (
             <Link
@@ -70,6 +71,11 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             >
               <Icon className="size-4" />
               {label}
+              {soon && (
+                <Badge tone="accent" className="ml-auto">
+                  Soon
+                </Badge>
+              )}
             </Link>
           );
         })}

@@ -1,5 +1,5 @@
 import { TOPICS, WETH } from './abi';
-import type { QuotePrices } from './prices';
+import { NoPriceError, type QuotePrices } from './prices';
 import type { RpcClient } from './rpc';
 import type { TokenInfoCache } from './tokens';
 
@@ -13,6 +13,7 @@ export interface PonsCurve {
 export interface CurvePeak {
   trades: number;
   peakPrice: number; // USD per whole token
+  unpriced?: boolean; // some trade had no USD price for its quote asset, so the peak is unknown
 }
 
 const BATCH = 250; // curves per log query; 250 curves over 48h came back in about 4 s (4,217 trades)
@@ -68,7 +69,12 @@ export async function ponsPeaks(
       if (price == null) continue;
       const peak = out.get(c.token)!;
       peak.trades++;
-      peak.peakPrice = Math.max(peak.peakPrice, price * (await prices.usdAt(c.quote, o.secondsAt(block))));
+      try {
+        peak.peakPrice = Math.max(peak.peakPrice, price * (await prices.usdAt(c.quote, o.secondsAt(block))));
+      } catch (err) {
+        if (!(err instanceof NoPriceError)) throw err; // a failed call: the whole step is retried later
+        peak.unpriced = true; // no market data for that quote and hour: this token cannot be priced honestly
+      }
     }
   }
   return out;

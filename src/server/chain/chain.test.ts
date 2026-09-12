@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { TOPICS, WETH, decodeLaunch, decodeString } from './abi';
 import { GeckoClient } from './gecko';
 import { holdersAt } from './holders';
-import { tradePrice } from './pons';
+import { ponsPeaks, tradePrice } from './pons';
 import { TokenInfoCache } from './tokens';
-import { QuotePrices } from './prices';
+import { NoPriceError, QuotePrices } from './prices';
 import type { RpcLog } from './rpc';
 
 const pad = (hex: string) => hex.replace(/^0x/, '').padStart(64, '0');
@@ -124,7 +124,7 @@ describe('Pons trade prices', () => {
   it('prices quote assets in USD by the hour, with USDG at one dollar', async () => {
     let calls = 0;
     const gecko = {
-      topPool: async () => '0xpool',
+      topPools: async () => ['0xpool'],
       // Like the real endpoint: up to `limit` hourly candles ending before `before`.
       hourlyCloses: async (_pool: string, _token: string, before: number, limit = 1000): Promise<[number, number][]> => {
         calls++;
@@ -159,7 +159,7 @@ describe('QuotePrices refetch window', () => {
     let calls = 0;
     let now = 1_789_000_000;
     const gecko = {
-      topPool: async () => '0xpool',
+      topPools: async () => ['0xpool'],
       hourlyCloses: async (): Promise<[number, number][]> => {
         calls++;
         return [[Math.floor(now / 3600) * 3600 - 40 * 3600, 7]]; // last trade 40 hours ago
@@ -203,5 +203,47 @@ describe('GeckoClient fairness', () => {
     await Promise.all([gecko.tokens([A], 'low'), ...Array.from({ length: 6 }, (_, i) => gecko.peakPrice(C, A, 0, 3600 + i, 'high'))]);
     expect(order[0]).toBe('high');
     expect(order.slice(0, 4)).toContain('low');
+  });
+});
+
+describe('Missing quote prices', () => {
+  const trade = `0x${pad((2n * 10n ** 16n).toString(16))}${pad((10n ** 24n).toString(16))}${pad('0x0')}${pad('0x0')}`;
+  const curve = { token: A, curve: B, quote: C, firstBlock: 10 };
+  const rpc = { getLogs: async () => [{ ...log([TOPICS.ponsTrade], trade, '0x11'), address: B }] };
+  const tokens = { get: async () => ({ decimals: 18, supply: 1_000_000_000 }) };
+  const opts = { windowBlocks: 100, head: 200, secondsAt: (b: number) => b };
+
+  it('marks a token unpriced when its quote has no market data, instead of failing the step', async () => {
+    const prices = {
+      usdAt: async (): Promise<number> => {
+        throw new NoPriceError('no USD price');
+      },
+    };
+    expect((await ponsPeaks(rpc, prices, tokens, [curve], opts)).get(A)).toMatchObject({ trades: 1, unpriced: true });
+  });
+
+  it('still fails the step when the price service itself did not answer', async () => {
+    const prices = {
+      usdAt: async (): Promise<number> => {
+        throw new Error('geckoterminal unavailable');
+      },
+    };
+    await expect(ponsPeaks(rpc, prices, tokens, [curve], opts)).rejects.toThrow('unavailable');
+  });
+
+  it('tries the next pools of a quote asset before giving up', async () => {
+    const asked: string[] = [];
+    const gecko = {
+      topPools: async () => ['0xyoung', '0xold'],
+      hourlyCloses: async (pool: string): Promise<[number, number][]> => {
+        asked.push(pool);
+        return pool === '0xold' ? [[3600 * 100, 181]] : [[3600 * 900, 190]];
+      },
+    };
+    const prices = new QuotePrices(gecko, () => 3600 * 1000);
+    expect(await prices.usdAt(C, 3600 * 100 + 60)).toBe(181);
+    expect(asked).toEqual(['0xyoung', '0xold']);
+    const empty = new QuotePrices({ topPools: async () => [], hourlyCloses: async () => [] }, () => 3600 * 1000);
+    await expect(empty.usdAt(C, 3600)).rejects.toBeInstanceOf(NoPriceError);
   });
 });
