@@ -4,7 +4,7 @@ import { sha256Hex } from '@/math/sha256';
 import { Agent } from './agent';
 import { loadConfig, type ServerConfig } from './config';
 import { Persistence } from './persist';
-import { DexScreenerSource } from './sources/dexscreener';
+import { ChainSource, type BackfillProgress } from './sources/chain';
 import { startSimulatedSource } from './sources/simulated';
 
 export interface Runtime {
@@ -14,6 +14,7 @@ export interface Runtime {
   startedAt: string;
   generator: { source: string; sha: string };
   ingestStats: () => unknown;
+  backfill: () => BackfillProgress | null;
   stop: () => void;
 }
 
@@ -41,21 +42,27 @@ export function getRuntime(overrides: Partial<ServerConfig> = {}): Runtime {
 
   let stopSource = () => {};
   let ingestStats: () => unknown = () => null;
+  let backfill: () => BackfillProgress | null = () => null;
   if (config.source === 'simulated') {
     stopSource = startSimulatedSource(agent, config);
     if (!saved) agent.replayPrior(config.priorCycles);
   } else {
-    const dex = new DexScreenerSource(agent, {
-      api: config.dexscreenerApi,
-      chain: config.chain,
+    const chain = new ChainSource(agent, {
+      rpcUrl: config.rpcUrl,
+      geckoApi: config.geckoApi,
+      geckoPerMinute: config.geckoPerMinute,
+      dexscreenerApi: config.dexscreenerApi,
+      network: config.chain,
       pollSeconds: config.pollSeconds,
-      maxDiscoveryAgeHours: config.maxDiscoveryAgeHours,
-      holdersApiUrl: config.holdersApiUrl,
+      backfillDays: config.backfillDays,
+      backfillSample: config.backfillSample,
+      stateFile: store ? path.join(config.dataDir, 'chain.json') : null,
       log,
     });
-    dex.start();
-    stopSource = () => dex.stop();
-    ingestStats = () => dex.stats;
+    chain.start();
+    stopSource = () => chain.stop();
+    ingestStats = () => chain.stats;
+    backfill = () => chain.progress();
   }
   agent.start();
 
@@ -73,6 +80,7 @@ export function getRuntime(overrides: Partial<ServerConfig> = {}): Runtime {
     startedAt: new Date().toISOString(),
     generator,
     ingestStats,
+    backfill,
     stop: () => {
       stopSource();
       agent.stop();
@@ -83,7 +91,7 @@ export function getRuntime(overrides: Partial<ServerConfig> = {}): Runtime {
     },
   };
   g.__survivalRuntime = rt;
-  log(`${config.source === 'dexscreener' ? `LIVE ${config.chain} via DexScreener` : 'simulated market'} · persona ${config.persona} · cycle ${config.cycleSeconds}s`);
+  log(`${config.source === 'chain' ? `LIVE ${config.chain} from ${config.rpcUrl}` : 'simulated market'} · persona ${config.persona} · cycle ${config.cycleSeconds}s`);
   return rt;
 }
 

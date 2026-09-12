@@ -41,6 +41,7 @@ interface State {
   baseline: number;
   loreCorr: number;
   warmup: Warmup | null;
+  backfill: { running: boolean; progress: number; since: string | null; checked: number } | null;
 
   ideas: {
     current: IdeaCycle | null;
@@ -81,6 +82,7 @@ export const useStore = create<State>()((set, get) => ({
   baseline: 0,
   loreCorr: 0,
   warmup: null,
+  backfill: null,
 
   ideas: { current: null, eliminated: [], exclusions: [], updatedAt: null, error: null, remoteSource: null },
 

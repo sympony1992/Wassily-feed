@@ -14,11 +14,11 @@ export function StatusBadge({ status }: { status: Token['status'] }) {
   return <Badge tone="negative">stalled</Badge>;
 }
 
-/** The token's own logo from DexScreener. Without one the slot stays an empty circle, never an invented icon. */
+/** The logo the token's team published (DexScreener or GeckoTerminal). Without one the slot stays an empty circle, never an invented icon. */
 function TokenLogo({ src }: { src?: string }) {
   const [broken, setBroken] = useState(false);
   if (!src || broken) {
-    return <span className="size-7 rounded-full border border-dashed border-border bg-surface-2" title="No logo published on DexScreener" aria-hidden />;
+    return <span className="size-7 rounded-full border border-dashed border-border bg-surface-2" title="No logo published for this token" aria-hidden />;
   }
   return (
     <img

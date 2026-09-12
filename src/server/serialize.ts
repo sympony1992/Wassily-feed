@@ -69,6 +69,7 @@ export function stateJson(rt: Runtime) {
     cycle_number: agent.runs.length,
     counters: agent.counters(),
     warmup: agent.warmup(),
+    backfill: rt.backfill(),
     findings: { hour_counts: f.hourAll, hour_wins: f.hourWin, baseline: r4(f.baseline), lift: f.lift, lore_corr: r4(f.loreCorr) },
     latest_model: agent.latest ? modelJson(agent.latest, agent.bound) : null,
     tokens: tokens.map((t) => tokenJson(t, config.chain)),

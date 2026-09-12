@@ -57,7 +57,7 @@ export function ConsoleView({ blocks }: { blocks: TypingBlock[] }) {
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <Card className="flex flex-col">
-            <CardHeader title="Ingest feed" description={`${SITE.chain} · DexScreener`} />
+            <CardHeader title="Ingest feed" description={`${SITE.chain} · on-chain launches`} />
             <div className="scrollbar-thin h-[22.5rem] divide-y divide-border overflow-y-auto" aria-label="Token feed">
               {feed.length === 0 && <p className="p-5 text-sm text-muted">Waiting for the first token.</p>}
               {feed.map((t) => (

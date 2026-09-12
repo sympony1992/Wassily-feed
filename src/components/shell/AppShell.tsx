@@ -25,7 +25,7 @@ const NAV = [
 const SOURCE_COPY = {
   connecting: { label: 'Connecting…', detail: 'Checking the data source', footer: 'Connecting to the data source' },
   simulated: { label: 'Simulated data', detail: 'Not real tokens', footer: 'Simulated data, not real tokens' },
-  live: { label: 'Live data', detail: `${SITE.chain} via DexScreener`, footer: `Live ${SITE.chain} data via DexScreener` },
+  live: { label: 'Live data', detail: `${SITE.chain}, read on-chain`, footer: `Live ${SITE.chain} data, read on-chain` },
 } as const;
 
 function Brand() {

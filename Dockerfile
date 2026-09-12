@@ -24,7 +24,7 @@ RUN npm run build
 ENV NODE_ENV=production \
     PORT=3000 \
     DATA_DIR=/data \
-    DATA_SOURCE=dexscreener
+    DATA_SOURCE=chain
 EXPOSE 3000
 
 # Run node directly (not through npx) so SIGTERM reaches the app and it saves /data before a redeploy.

@@ -55,6 +55,7 @@ function fmtDuration(ms: number) {
 /** Shown until enough real tokens are labelled for the model to measure anything. */
 function WarmingUp() {
   const warmup = useStore((s) => s.warmup);
+  const backfill = useStore((s) => s.backfill);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30_000);
@@ -82,6 +83,12 @@ function WarmingUp() {
           <dd className="mt-0.5 text-sm text-fg">{warmup.nextLabelAt ? fmtDuration(Date.parse(warmup.nextLabelAt) - now) : 'waiting for launches'}</dd>
         </div>
       </dl>
+      {backfill?.running && (
+        <p className="border-t border-border pt-3 text-xs text-pretty text-muted">
+          Labelling past launches{backfill.since ? ` back to ${new Date(backfill.since).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}` : ''} ·{' '}
+          <span className="font-mono text-fg tabular-nums">{Math.round(backfill.progress * 100)}%</span> · {fmtInt(backfill.checked)} tokens checked
+        </p>
+      )}
     </div>
   );
 }

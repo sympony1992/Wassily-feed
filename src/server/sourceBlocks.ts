@@ -10,7 +10,7 @@ const read = (...parts: string[]) => readFileSync(path.join(process.cwd(), 'src'
 export function crtBlocks(): TypingBlock[] {
   const sanitize = read('engine', 'sanitize.ts');
   return [
-    { stage: `ingest · ${SITE.chain.toLowerCase()}`, src: extractRegion(read('server', 'sources', 'dexscreener.ts'), 'ingest') },
+    { stage: `ingest · ${SITE.chain.toLowerCase()}`, src: extractRegion(read('server', 'sources', 'chain.ts'), 'ingest') },
     { stage: 'lore safety', src: sanitize.slice(sanitize.indexOf('export function sanitizeLore')).trim() },
     { stage: 'features', src: extractRegion(read('engine', 'features.ts'), 'features') },
     { stage: 'training', src: extractRegion(read('engine', 'model.ts'), 'training') },
@@ -20,7 +20,7 @@ export function crtBlocks(): TypingBlock[] {
 
 export function consoleBlocks(): TypingBlock[] {
   return [
-    { stage: 'ingest', src: extractRegion(read('server', 'sources', 'dexscreener.ts'), 'ingest') },
+    { stage: 'ingest', src: extractRegion(read('server', 'sources', 'chain.ts'), 'ingest') },
     { stage: 'features', src: extractRegion(read('engine', 'features.ts'), 'features') },
     { stage: 'training', src: extractRegion(read('engine', 'model.ts'), 'training') },
     { stage: 'evaluating', src: extractRegion(read('engine', 'trainer.ts'), 'evaluating') },

@@ -117,8 +117,11 @@ async function refreshState(includeFeed: boolean) {
     const f = data.findings ?? {};
     const w = data.warmup;
     set({
-      dataSource: data.source === 'dexscreener' ? 'live' : 'simulated',
+      dataSource: data.source === 'chain' || data.source === 'dexscreener' ? 'live' : 'simulated',
       startedAt: data.started_at ?? null,
+      backfill: data.backfill
+        ? { running: !!data.backfill.running, progress: Number(data.backfill.progress) || 0, since: data.backfill.since ?? null, checked: Number(data.backfill.checked) || 0 }
+        : null,
       cycle: data.cycle_number ?? 0,
       hourAll: f.hour_counts ?? new Array(24).fill(0),
       hourWin: f.hour_wins ?? new Array(24).fill(0),
