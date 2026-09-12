@@ -25,7 +25,8 @@ export class QuotePrices {
     private readonly nowSeconds: () => number,
   ) {}
 
-  async usdAt(quote: string, seconds: number): Promise<number> {
+  /** `cachedOnly` answers from prices already fetched and never calls out: for display that must not wait on the API. */
+  async usdAt(quote: string, seconds: number, o: { cachedOnly?: boolean } = {}): Promise<number> {
     const q = quote.toLowerCase();
     if (STABLES.has(q)) return 1;
     const hour = Math.floor(seconds / HOUR_S) * HOUR_S;
@@ -33,6 +34,11 @@ export class QuotePrices {
     this.closes.set(q, series);
 
     let price = nearest(series, hour, NEAR_S);
+    if (price == null && o.cachedOnly) {
+      price = nearest(series, hour, FAR_S);
+      if (price == null) throw new NoPriceError(`no cached USD price for ${q}`);
+      return price;
+    }
     const covered = this.covered.get(q) ?? [];
     const fetchedRecently = (this.fetchedAt.get(q) ?? -Infinity) > this.nowSeconds() - REFETCH_S;
     if (price == null && !fetchedRecently && !covered.some(([from, to]) => hour >= from && hour <= to)) {

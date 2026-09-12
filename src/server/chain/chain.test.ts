@@ -247,3 +247,22 @@ describe('Missing quote prices', () => {
     await expect(empty.usdAt(C, 3600)).rejects.toBeInstanceOf(NoPriceError);
   });
 });
+
+describe('QuotePrices cached lookups', () => {
+  it('never calls out for a cached-only lookup, and uses the last price within 48 hours', async () => {
+    let calls = 0;
+    const gecko = {
+      topPools: async () => ['0xpool'],
+      hourlyCloses: async (): Promise<[number, number][]> => {
+        calls++;
+        return [[3600 * 100, 5]];
+      },
+    };
+    const prices = new QuotePrices(gecko, () => 3600 * 1000);
+    await expect(prices.usdAt(C, 3600 * 100, { cachedOnly: true })).rejects.toBeInstanceOf(NoPriceError);
+    expect(calls).toBe(0);
+    expect(await prices.usdAt(C, 3600 * 100)).toBe(5);
+    expect(await prices.usdAt(C, 3600 * 130, { cachedOnly: true })).toBe(5); // 30 hours later
+    expect(calls).toBe(1);
+  });
+});

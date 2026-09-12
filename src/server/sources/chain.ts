@@ -626,7 +626,8 @@ export class ChainSource {
       const price = info ? tradePrice(log.data, quote === WETH ? 18 : (quoteInfo?.decimals ?? 18), info.decimals) : null;
       if (price == null || !info) continue;
       try {
-        c.peakCap = Math.max(c.peakCap ?? 0, price * (await this.prices.usdAt(quote, seconds)) * info.supply);
+        // The watch list only decorates the feed: it prices from cache and never queues a GeckoTerminal call.
+        c.peakCap = Math.max(c.peakCap ?? 0, price * (await this.prices.usdAt(quote, seconds, { cachedOnly: true })) * info.supply);
       } catch (err) {
         if (!(err instanceof NoPriceError)) throw err; // the feed simply skips a trade it cannot price
       }
