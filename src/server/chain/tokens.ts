@@ -22,6 +22,12 @@ export class TokenInfoCache {
 
   constructor(private readonly rpc: Pick<RpcClient, 'ethCall'>) {}
 
+  /** Metadata known without asking the chain, such as a launchpad's fixed supply; never overrides a value already read. */
+  seed(token: string, info: TokenInfo) {
+    const key = token.toLowerCase();
+    if (!this.infos.has(key)) this.infos.set(key, Promise.resolve(info));
+  }
+
   /** Decimals and total supply, or null when the contract does not answer like a token. */
   get(token: string): Promise<TokenInfo | null> {
     return this.cached(this.infos, token.toLowerCase(), async (key) => {

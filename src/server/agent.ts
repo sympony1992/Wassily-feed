@@ -162,7 +162,8 @@ export class Agent extends EventEmitter {
 
   start() {
     if (this.timer) return;
-    if (!this.latest) this.runCycle();
+    // A saved model older than one cycle (after restarts, say) is refreshed now, not a full cycle from now.
+    if (!this.latest || Date.now() - Date.parse(this.latest.ranAt) >= this.cycleSeconds * 1000) this.runCycle();
     this.nextCycleAt = Date.now() + this.cycleSeconds * 1000;
     this.timer = setInterval(() => {
       this.runCycle();

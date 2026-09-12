@@ -28,6 +28,7 @@ export interface PoolLaunch {
   tokenA: string;
   tokenB: string; // for Pons launches: the quote asset
   creator?: string;
+  factory?: string; // the contract that emitted a Pons launch
   block: number;
 }
 
@@ -37,7 +38,7 @@ export const topicAddress = (topic: string) => `0x${topic.slice(26)}`.toLowerCas
 export const wordAddress = (data: string, index: number) => `0x${data.slice(2 + index * 64 + 24, 2 + (index + 1) * 64)}`.toLowerCase();
 
 /** Decode one launch log, or null if it is not one of LAUNCH_TOPICS. */
-export function decodeLaunch(log: { topics: string[]; data: string; blockNumber: string }): PoolLaunch | null {
+export function decodeLaunch(log: { address?: string; topics: string[]; data: string; blockNumber: string }): PoolLaunch | null {
   const block = Number(log.blockNumber);
   const [topic, t1, t2, t3] = log.topics;
   // Any contract can emit an event with the same signature but fewer indexed fields; those logs are not launches.
@@ -55,7 +56,7 @@ export function decodeLaunch(log: { topics: string[]; data: string; blockNumber:
     case TOPICS.ponsCreated: {
       if (!shaped(4, 0)) return null;
       const quote = log.data.length >= 66 ? wordAddress(log.data, 0) : NATIVE;
-      return { kind: 'pons', pool: topicAddress(t2), tokenA: topicAddress(t1), tokenB: quote === NATIVE ? WETH : quote, creator: topicAddress(t3), block };
+      return { kind: 'pons', pool: topicAddress(t2), tokenA: topicAddress(t1), tokenB: quote === NATIVE ? WETH : quote, creator: topicAddress(t3), factory: log.address?.toLowerCase(), block };
     }
     default:
       return null;

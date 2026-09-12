@@ -81,12 +81,18 @@ const MINT_LOOKBACK = 900_000; // about a day of blocks before a DEX launch, whe
 const QUOTE_MIN_POOLS = 8; // a token paired in this many launches of one step is a quote asset, not a launch
 const OLDER_TOKEN_MS = 6 * HOUR; // pairs older than the launch by this much mean an existing token found a new pool
 const RETRAIN_AT = [20, 200, 1000, 2000]; // labelled counts that trigger an early retrain
+const RETRAIN_GROWTH = 1.25; // ...and so does a quarter more labels than the latest model saw
+const RETRAIN_MIN_GAP_MS = 10 * 60_000;
 const SLOW_LIVE_BATCH = 10;
 const MATURED_PER_TICK = 150; // after a restart the backlog is labelled in slices, so every tick finishes and saves its place
 const HOLDERS_PARALLEL = 3;
 const LOGO_BATCH_EVERY_MS = 60_000; // logos only decorate the feed: one GeckoTerminal call a minute, queued behind labelling
 const WATCH_SCAN_MAX_BLOCKS = 5_000;
 const HUES = [38, 152, 268, 196, 12, 88, 320];
+// Every token from this Pons factory is minted with 18 decimals and a fixed 1B supply (30 of 30 sampled across nine days),
+// so pricing its curve trades needs no calls to the chain. Launches from any other factory are still read.
+const PONS_FACTORY = '0x7ed598bcef8bd9edd8c97a195c6d13f40801ec7e';
+const PONS_LAUNCH_INFO = { decimals: 18, supply: 1_000_000_000 };
 
 /** Uniform, restart-stable sample: a token is in or out depending on its address alone. */
 const inSample = (token: string, rate: number) => rate >= 1 || parseInt(createHash('sha256').update(token).digest('hex').slice(0, 8), 16) / 0x1_0000_0000 < rate;
@@ -365,7 +371,10 @@ export class ChainSource {
     const add = (l: PoolLaunch & { at: number }, token: string) => {
       const c = out.get(token) ?? { token, firstBlock: l.block, launchedAt: l.at, pools: new Set<string>(), creator: l.creator };
       c.pools.add(l.pool);
-      if (l.kind === 'pons') Object.assign(c, { curve: l.pool, quote: l.tokenB, creator: l.creator });
+      if (l.kind === 'pons') {
+        Object.assign(c, { curve: l.pool, quote: l.tokenB, creator: l.creator });
+        if (l.factory === PONS_FACTORY) this.tokenInfo.seed(token, PONS_LAUNCH_INFO);
+      }
       if (l.block < c.firstBlock) Object.assign(c, { firstBlock: l.block, launchedAt: l.at });
       out.set(token, c);
     };
@@ -432,6 +441,8 @@ export class ChainSource {
       }
     }
 
+    // Names for the tokens about to be labelled, read in parallel instead of one finish() at a time.
+    await Promise.all(priced.filter((p) => p.cap >= SITE.entryMc).map((p) => this.tokenInfo.label(p.c.token).catch(() => null)));
     for (const p of priced) {
       if (this.stopped) return;
       await this.finish(p.c, p.c.launchedAt, p.cap, undefined, undefined, undefined, announce);
@@ -581,11 +592,21 @@ export class ChainSource {
     const owners = new Map<string, Candidate>();
     for (const c of this.young.values()) if (c.curve) owners.set(c.curve, c);
     const seconds = Math.floor(now / 1000);
+    // Read every traded token's supply and decimals up front, in parallel, not one trade at a time.
+    const wanted = new Set<string>();
+    for (const log of logs) {
+      const c = owners.get(log.address.toLowerCase());
+      if (!c) continue;
+      wanted.add(c.token);
+      if (c.quote && c.quote !== WETH) wanted.add(c.quote);
+    }
+    const infos = new Map(await Promise.all([...wanted].map(async (token) => [token, await this.tokenInfo.get(token).catch(() => null)] as const)));
     for (const log of logs) {
       const c = owners.get(log.address.toLowerCase());
       if (!c) continue;
       const quote = c.quote ?? WETH;
-      const [info, quoteInfo] = await Promise.all([this.tokenInfo.get(c.token), quote === WETH ? null : this.tokenInfo.get(quote)]);
+      const info = infos.get(c.token) ?? null;
+      const quoteInfo = quote === WETH ? null : (infos.get(quote) ?? null);
       const price = info ? tradePrice(log.data, quote === WETH ? 18 : (quoteInfo?.decimals ?? 18), info.decimals) : null;
       if (price == null || !info) continue;
       c.peakCap = Math.max(c.peakCap ?? 0, price * (await this.prices.usdAt(quote, seconds)) * info.supply);
@@ -701,7 +722,10 @@ export class ChainSource {
 
   private retrainIfDue() {
     const n = this.agent.labelled().length;
-    if (RETRAIN_AT.some((mark) => this.trainedAt < mark && n >= mark)) {
+    const latest = this.agent.latest;
+    const crossedMark = RETRAIN_AT.some((mark) => this.trainedAt < mark && n >= mark);
+    const grown = n >= RETRAIN_AT[0] && n >= (latest?.n ?? 0) * RETRAIN_GROWTH && (!latest || this.now() - Date.parse(latest.ranAt) >= RETRAIN_MIN_GAP_MS);
+    if (crossedMark || grown) {
       this.trainedAt = n;
       this.agent.runCycle();
     }

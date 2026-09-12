@@ -182,6 +182,15 @@ describe('Chain source (mocked chain, DexScreener and GeckoTerminal)', () => {
     expect(agent.tokens.get(X)).toMatchObject({ status: 'passed' });
   });
 
+  it('retrains at start when the saved model is older than one cycle', () => {
+    const agent = new Agent('hoeffding', null, 3600);
+    agent.runCycle(new Date(Date.now() - 2 * 3_600_000));
+    const before = agent.runs.length;
+    agent.start();
+    agent.stop();
+    expect(agent.runs.length).toBe(before + 1);
+  });
+
   it('still accepts DATA_SOURCE=dexscreener as the live source', () => {
     expect(loadConfig({ DATA_SOURCE: 'dexscreener' }).source).toBe('chain');
     expect(loadConfig({ DATA_SOURCE: 'chain' })).toMatchObject({ source: 'chain', backfillDays: 14, persist: true });

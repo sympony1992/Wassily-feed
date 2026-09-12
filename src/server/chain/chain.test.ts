@@ -3,6 +3,7 @@ import { TOPICS, WETH, decodeLaunch, decodeString } from './abi';
 import { GeckoClient } from './gecko';
 import { holdersAt } from './holders';
 import { tradePrice } from './pons';
+import { TokenInfoCache } from './tokens';
 import { QuotePrices } from './prices';
 import type { RpcLog } from './rpc';
 
@@ -19,7 +20,7 @@ describe('decodeLaunch', () => {
     expect(decodeLaunch(log([TOPICS.v3PoolCreated, topic(A), topic(B), topic('0x2710')], `0x${pad('0x3c')}${pad(C)}`))).toMatchObject({ kind: 'v3', pool: C });
     const id = `0x${'ab'.repeat(32)}`;
     expect(decodeLaunch(log([TOPICS.v4Initialize, id, topic(A), topic(B)], `0x${pad('0x0')}`))).toMatchObject({ kind: 'v4', pool: id, tokenA: A, tokenB: B });
-    expect(decodeLaunch(log([TOPICS.ponsCreated, topic(A), topic(B), topic(C)]))).toEqual({ kind: 'pons', pool: B, tokenA: A, tokenB: WETH, creator: C, block: 16 });
+    expect(decodeLaunch(log([TOPICS.ponsCreated, topic(A), topic(B), topic(C)]))).toEqual({ kind: 'pons', pool: B, tokenA: A, tokenB: WETH, creator: C, factory: C, block: 16 });
     const D = '0x4444444444444444444444444444444444444444';
     expect(decodeLaunch(log([TOPICS.ponsCreated, topic(A), topic(B), topic(C)], `0x${pad(D)}${pad('0x0')}${pad('0x3a')}`))).toMatchObject({ tokenB: D }); // quoted in a stock token
     expect(decodeLaunch(log([TOPICS.transfer, topic(A), topic(B)]))).toBeNull();
@@ -170,5 +171,23 @@ describe('QuotePrices refetch window', () => {
     now += 120;
     expect(await prices.usdAt(stock, now + 3600)).toBe(7);
     expect(calls).toBe(1);
+  });
+});
+
+describe('TokenInfoCache', () => {
+  it('uses seeded launchpad metadata without calling the chain, and reads everything else', async () => {
+    const asked: string[] = [];
+    const rpc = {
+      ethCall: async (to: string, data: string) => {
+        asked.push(`${to}:${data}`);
+        return `0x${pad(data === '0x313ce567' ? '0x12' : (10n ** 24n).toString(16))}`;
+      },
+    };
+    const cache = new TokenInfoCache(rpc);
+    cache.seed(A, { decimals: 18, supply: 1_000_000_000 });
+    expect(await cache.get(A)).toEqual({ decimals: 18, supply: 1_000_000_000 });
+    expect(asked).toHaveLength(0);
+    expect(await cache.get(B)).toEqual({ decimals: 18, supply: 1_000_000 });
+    expect(asked).toHaveLength(2);
   });
 });
