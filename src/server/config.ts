@@ -30,8 +30,8 @@ export function loadConfig(env: Env = process.env): ServerConfig {
   // "dexscreener" named the live source before discovery moved on-chain; it still selects live data.
   const live = env.DATA_SOURCE === 'chain' || env.DATA_SOURCE === 'dexscreener';
   const arrival = (env.ARRIVAL_MS ?? '').split(',').map(Number);
-  // Each past launch costs one GeckoTerminal call; 10% of 14 days fits the free tier in about a day and a half.
-  const sample = Number(env.BACKFILL_SAMPLE ?? 0.1);
+  // Pons launches are priced from on-chain trades and cost no API budget; other venues pace the backfill through GeckoTerminal.
+  const sample = Number(env.BACKFILL_SAMPLE ?? 0.5);
 
   return {
     source: live ? 'chain' : 'simulated',

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { TOPICS, WETH, decodeLaunch, decodeString } from './abi';
 import { GeckoClient } from './gecko';
 import { holdersAt } from './holders';
+import { tradePrice } from './pons';
+import { QuotePrices } from './prices';
 import type { RpcLog } from './rpc';
 
 const pad = (hex: string) => hex.replace(/^0x/, '').padStart(64, '0');
@@ -18,6 +20,8 @@ describe('decodeLaunch', () => {
     const id = `0x${'ab'.repeat(32)}`;
     expect(decodeLaunch(log([TOPICS.v4Initialize, id, topic(A), topic(B)], `0x${pad('0x0')}`))).toMatchObject({ kind: 'v4', pool: id, tokenA: A, tokenB: B });
     expect(decodeLaunch(log([TOPICS.ponsCreated, topic(A), topic(B), topic(C)]))).toEqual({ kind: 'pons', pool: B, tokenA: A, tokenB: WETH, creator: C, block: 16 });
+    const D = '0x4444444444444444444444444444444444444444';
+    expect(decodeLaunch(log([TOPICS.ponsCreated, topic(A), topic(B), topic(C)], `0x${pad(D)}${pad('0x0')}${pad('0x3a')}`))).toMatchObject({ tokenB: D }); // quoted in a stock token
     expect(decodeLaunch(log([TOPICS.transfer, topic(A), topic(B)]))).toBeNull();
   });
 
@@ -98,5 +102,32 @@ describe('GeckoClient', () => {
       json({ data: [{ attributes: { address: A, name: 'A', symbol: 'A', decimals: 18, normalized_total_supply: '1000000000', image_url: 'missing.png' } }] })) as typeof fetch;
     const [token] = await new GeckoClient({ ...quick, fetchImpl }).tokens([A]);
     expect(token).toMatchObject({ supply: 1_000_000_000, imageUrl: undefined });
+  });
+});
+
+describe('Pons trade prices', () => {
+  it('prices one whole token from the quote paid and tokens moved', () => {
+    const data = `0x${pad((2n * 10n ** 16n).toString(16))}${pad((10n ** 24n).toString(16))}`;
+    expect(tradePrice(data, 18, 18)).toBeCloseTo(2e-8, 20);
+    expect(tradePrice(`0x${pad('0x5')}${pad('0x0')}`, 18, 18)).toBeNull();
+  });
+
+  it('prices quote assets in USD by the hour, with USDG at one dollar', async () => {
+    let calls = 0;
+    const gecko = {
+      topPool: async () => '0xpool',
+      // Like the real endpoint: up to `limit` hourly candles ending before `before`.
+      hourlyCloses: async (_pool: string, _token: string, before: number, limit = 1000): Promise<[number, number][]> => {
+        calls++;
+        const last = Math.floor(before / 3600) * 3600 - 3600;
+        return Array.from({ length: limit }, (_, i): [number, number] => [last - i * 3600, 219.5]);
+      },
+    };
+    const prices = new QuotePrices(gecko, () => 2_000_000_000);
+    const nvda = '0xd0601ce157db5bdc3162bbac2a2c8af5320d9eec';
+    expect(await prices.usdAt(nvda, 1_789_000_000)).toBe(219.5);
+    expect(await prices.usdAt(nvda, 1_789_000_000 + 1800)).toBe(219.5); // cached
+    expect(calls).toBe(1);
+    expect(await prices.usdAt('0x5fc5360d0400a0fd4f2af552add042d716f1d168', 1_789_000_000)).toBe(1);
   });
 });

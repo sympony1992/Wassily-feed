@@ -135,6 +135,20 @@ export class GeckoClient {
     return out;
   }
 
+  /** Hourly USD closes of `token` in `pool` before `beforeSec`, as [unix seconds, close], newest first. */
+  async hourlyCloses(pool: string, token: string, beforeSec: number, limit = 1000): Promise<[number, number][]> {
+    const body = await this.get<{ data?: { attributes?: { ohlcv_list?: [number, number, number, number, number, number][] } } }>(
+      `/pools/${pool}/ohlcv/hour?before_timestamp=${beforeSec}&limit=${limit}&currency=usd&token=${token}`,
+    );
+    return (body?.data?.attributes?.ohlcv_list ?? []).map(([t, , , , close]) => [t, close]);
+  }
+
+  /** The pool GeckoTerminal lists first for a token (its deepest market), or null. */
+  async topPool(token: string): Promise<string | null> {
+    const body = await this.get<{ data?: Resource<{ address: string }>[] }>(`/tokens/${token}/pools?page=1`);
+    return body?.data?.[0]?.attributes.address.toLowerCase() ?? null;
+  }
+
   /** Highest hourly USD price of `token` in `pool` between two unix times (seconds), or null without trades. */
   async peakPrice(pool: string, token: string, fromSec: number, toSec: number): Promise<number | null> {
     const hours = Math.min(1000, Math.ceil((toSec - fromSec) / 3600) + 2);

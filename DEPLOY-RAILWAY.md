@@ -59,13 +59,13 @@ PERSONA=hoeffding
 
 # Opsional: riwayat yang dilabeli saat pertama jalan
 BACKFILL_DAYS=14
-BACKFILL_SAMPLE=0.1
+BACKFILL_SAMPLE=0.5
 ```
 
 Catatan:
 - `DATA_SOURCE=dexscreener` (nama lama) masih diterima dan artinya sama dengan `chain`.
 - Variabel `NEXT_PUBLIC_*` ditanam saat **build**. Setelah mengubahnya, klik **Redeploy**.
-- `BACKFILL_SAMPLE` = porsi token lama yang dicek, dipilih acak (0.1 = 10%). Makin besar makin lengkap, tapi makin lama karena GeckoTerminal gratis hanya ±28 panggilan per menit.
+- `BACKFILL_SAMPLE` = porsi token lama yang dicek, dipilih acak (0.5 = 50%). Token Pons dihitung langsung dari transaksi di chain sehingga cepat; token dari DEX lain lewat GeckoTerminal gratis yang lambat.
 
 ## 5. Buat domain publik
 
@@ -82,7 +82,7 @@ Kamu juga bisa memakai domain sendiri di bagian yang sama (**Custom Domain**) da
    - angka **Above $10K** dan **Reached $30K** mulai naik dalam hitungan menit.
 3. Tab **Deployments** → **View logs** harus menampilkan baris `[agent] LIVE robinhood from https://rpc.mainnet.chain.robinhood.com` dan `chain: labelling launches from block …`.
 
-**Yang perlu diingat:** saat pertama jalan, aplikasi melabeli riwayat 14 hari terakhir (sampel acak 10%) dari yang terbaru. Label pertama muncul dalam hitungan menit, dan backfill selesai sekitar 1,5 hari. Setelah itu setiap peluncuran baru dicek semua, tepat 48 jam setelah launch.
+**Yang perlu diingat:** saat pertama jalan, aplikasi melabeli riwayat 14 hari terakhir (sampel acak 50%) dari yang terbaru. Token Pons (mayoritas peluncuran) dihitung dari transaksi di chain dan terisi dalam hitungan jam; token DEX lain menyusul mengikuti batas GeckoTerminal. Setelah itu setiap peluncuran baru dicek semua, tepat 48 jam setelah launch.
 
 ---
 

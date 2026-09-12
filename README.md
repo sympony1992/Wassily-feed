@@ -31,7 +31,7 @@ Every launch on Robinhood Chain is a coin of unknown bias. One flip says nothing
 ```mermaid
 flowchart TD
   A["Discover<br/>every pool launch, read from the Robinhood Chain RPC"] --> B["Admit<br/>tokens launched against WETH, ETH, USDG or a stock token"]
-  B --> C["Measure<br/>peak market cap in the first 48 h, from hourly candles"]
+  B --> C["Measure<br/>peak market cap in the first 48 h, from on-chain trades or hourly candles"]
   C --> D{"48 h after launch"}
   D -->|peak below $10K| X["Leaves the study"]
   D -->|peak at or above $30K| P["Passed"]
@@ -49,14 +49,16 @@ flowchart TD
 1. **Discover.** Every block is read from the Robinhood Chain RPC for pool launches: Uniswap v2 `PairCreated`, v3 `PoolCreated`, v4 `Initialize`, and the Pons launchpad's curve creation.
    - A launch counts when the token is paired against a quote asset (WETH, ETH, USDG or a tokenized stock).
    - An existing token that merely opens a new pool is not a launch.
-2. **Measure.** 48 hours after launch, the token's **peak** market cap is its highest hourly price over those 48 hours, from GeckoTerminal's candles for every pool it trades in (the Pons curve included), times its total supply. A token that touched $25K and fell back still crossed $10K.
+2. **Measure.** 48 hours after launch, the token's **peak** market cap is its highest price over those 48 hours times its total supply. A token that touched $25K and fell back still crossed $10K.
+   - **Pons launchpad tokens** (most launches): every trade on the bonding curve is read from the chain, priced as quote paid ÷ tokens moved, in USD at that hour. This matches GeckoTerminal's candles to within half a percent.
+   - **Other venues:** the highest hourly candle from GeckoTerminal for the pools DexScreener lists.
 3. **Label.** Each token is labelled once:
    - peak below $10K: it leaves the study;
    - peak at or above $30K: *passed*;
    - anything in between: *stalled*.
 
    Its holder count at 48 hours is replayed from its ERC-20 `Transfer` events.
-4. **Backfill.** On first start the last 14 days of launches are labelled the same way, newest first, as a uniform 10% random sample (`BACKFILL_DAYS`, `BACKFILL_SAMPLE`), so the study starts with real history instead of an empty jar. New launches are all checked.
+4. **Backfill.** On first start the last 14 days of launches are labelled the same way, newest first, as a uniform 50% random sample (`BACKFILL_DAYS`, `BACKFILL_SAMPLE`), so the study starts with real history instead of an empty jar. New launches are all checked.
 5. **Learn.** Every cycle (hourly in live mode) Wassily fits a class-balanced, L2-regularised logistic regression by Newton's method (IRLS). It then checks the fit three ways:
    - 5-fold cross-validation;
    - a train-on-past, test-on-future split;
@@ -167,8 +169,8 @@ Ideas are published for transparency. Wassily does not deploy them.
 ![A brass hourglass beside a row of coins and an empty jar](docs/images/warming-up.jpg)
 
 **Known limits** (also stated in `methodology.json`):
-- **Sampled history.** The backfill looks up a random 10% of past launches to fit GeckoTerminal's free tier (about 28 calls a minute). The sample is uniform by address, so it is unbiased, but smaller than a census.
-- **Hourly resolution.** Peaks come from hourly candles of executed trades; a spike inside an hour counts at that hour's high.
+- **Sampled history.** The backfill looks up a random half of past launches. The sample is uniform by address, so it is unbiased, but smaller than a census. Non-Pons venues are paced by GeckoTerminal's free tier, so that part of the backfill finishes later.
+- **Resolution.** Pons peaks use every trade; other venues use hourly candles, so a spike inside an hour counts at that hour's high.
 - **Unusual quote assets.** A token launched only against a rarely used quote asset may be missed.
 - **No lore.** Descriptions are not on-chain, so lore is not a live feature.
 
@@ -250,7 +252,7 @@ See `.env.example`.
   - `DATA_SOURCE` (`chain` for live data; `dexscreener` is an older alias);
   - `PERSONA=hoeffding`;
   - `RPC_URL`, `GECKO_API`, `GECKO_PER_MINUTE`;
-  - `BACKFILL_DAYS` (default 14) and `BACKFILL_SAMPLE` (default 0.1);
+  - `BACKFILL_DAYS` (default 14) and `BACKFILL_SAMPLE` (default 0.5);
   - `CYCLE_SECONDS`, `POLL_SECONDS`, `PERSIST` and `DATA_DIR`.
 
 ## Deploy

@@ -1,6 +1,7 @@
 /** Event topics and ABI decoding for the pool launches this agent watches on Robinhood Chain. */
 
 export const WETH = '0x0bd7d308f8e1639fab988df18a8011f41eacad73';
+export const USDG = '0x5fc5360d0400a0fd4f2af552add042d716f1d168'; // dollar stablecoin
 export const NATIVE = '0x0000000000000000000000000000000000000000'; // Uniswap v4 uses the zero address for ETH
 
 export const TOPICS = {
@@ -11,8 +12,10 @@ export const TOPICS = {
   v3PoolCreated: '0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4e6b7118',
   // Uniswap v4 PoolManager: Initialize(bytes32 indexed id, address indexed currency0, address indexed currency1, uint24 fee, int24 tickSpacing, address hooks, uint160 sqrtPriceX96, int24 tick)
   v4Initialize: '0xdd466e674ea557f56295e2d0218a125ea4b4f0f6f3307b95f85e6110838d6438',
-  // Pons launchpad factory: (address indexed token, address indexed curve, address indexed creator, ...)
+  // Pons launchpad factory: (address indexed token, address indexed curve, address indexed creator; address quote (zero = WETH), uint256, uint256)
   ponsCreated: '0x8d4aad4953d0ca700d468f3753aa14432d1b35b43ec6409f051fb6aa43a89607',
+  // Pons curve trade, emitted by the curve: (uint256 quoteAmount, uint256 tokenAmount, uint256 fee, uint256 creatorFee)
+  ponsTrade: '0xec36bf571f136799e8dc0b0b8bea4b04d8bd3d43de838aab0d5fc21d4cbfc455',
 } as const;
 
 export const LAUNCH_TOPICS = [TOPICS.v2PairCreated, TOPICS.v3PoolCreated, TOPICS.v4Initialize, TOPICS.ponsCreated];
@@ -23,7 +26,7 @@ export interface PoolLaunch {
   kind: PoolKind;
   pool: string; // pair or pool address; for v4 the 32-byte pool id
   tokenA: string;
-  tokenB: string;
+  tokenB: string; // for Pons launches: the quote asset
   creator?: string;
   block: number;
 }
@@ -44,8 +47,10 @@ export function decodeLaunch(log: { topics: string[]; data: string; blockNumber:
       return { kind: 'v3', pool: wordAddress(log.data, 1), tokenA: topicAddress(t1), tokenB: topicAddress(t2), block };
     case TOPICS.v4Initialize:
       return { kind: 'v4', pool: t1.toLowerCase(), tokenA: topicAddress(t2), tokenB: topicAddress(t3), block };
-    case TOPICS.ponsCreated:
-      return { kind: 'pons', pool: topicAddress(t2), tokenA: topicAddress(t1), tokenB: WETH, creator: topicAddress(t3), block };
+    case TOPICS.ponsCreated: {
+      const quote = log.data.length >= 66 ? wordAddress(log.data, 0) : NATIVE;
+      return { kind: 'pons', pool: topicAddress(t2), tokenA: topicAddress(t1), tokenB: quote === NATIVE ? WETH : quote, creator: topicAddress(t3), block };
+    }
     default:
       return null;
   }
