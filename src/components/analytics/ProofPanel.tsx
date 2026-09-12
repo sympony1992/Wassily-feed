@@ -1,9 +1,9 @@
 import { SITE } from '@/config/site';
-import { fillTargetFor, useSimProof } from '@/hooks/useProof';
+import { fillTargetFor, useLiveProof, useSimProof } from '@/hooks/useProof';
 import { cn } from '@/lib/cn';
 import { fmtInt } from '@/lib/format';
 import { useBound, usePersona, useStore } from '@/store/useStore';
-import { JarGlyph } from '../overview/JarCard';
+import { GATE_NAMES, JarGlyph } from '../overview/JarCard';
 import { Formula } from '../ui/Formula';
 import { IconFastForward, IconReset, IconSync } from '../ui/Icons';
 import { Badge, Button, Card, CardHeader } from '../ui/primitives';
@@ -19,8 +19,9 @@ export function ProofPanel() {
   const syncSimWithModel = useStore((s) => s.syncSimWithModel);
   const applyPreset = useStore((s) => s.applyPreset);
   const proof = useSimProof(bound);
+  const live = useLiveProof(); // the sliders know nothing of the gates; only the live model can say a launch was earned
 
-  const ready = proof.jar >= 1 && !proof.pending;
+  const ready = proof.jar >= 1 && !proof.pending; // the bound alone clears the target for these slider values
   const eps = proof.epsilon;
   const usesD = bound.uses.includes('d');
   const confidence = Math.round((1 - SITE.delta) * 100);
@@ -34,7 +35,7 @@ export function ProofPanel() {
           example ? (
             <Badge>What-if · example values</Badge>
           ) : (
-            <Badge tone={ready ? 'positive' : 'accent'}>{ready ? 'Target reached' : `Jar ${(proof.jar * 100).toFixed(1)}%`}</Badge>
+            <Badge tone={ready ? 'positive' : 'accent'}>{ready ? 'Floor clears target' : `Jar ${(proof.jar * 100).toFixed(1)}%`}</Badge>
           )
         }
       />
@@ -59,7 +60,12 @@ export function ProofPanel() {
               <>Resampling {fmtInt(SITE.bootstrapResamples)} bootstrap draws…</>
             ) : ready ? (
               <>
-                Jar full: the floor is <b className="font-mono tabular-nums">{proof.floor.toFixed(3)}</b>, clear of {SITE.aucTarget.toFixed(3)}. {persona.mascot} has earned a launch.
+                The floor is <b className="font-mono tabular-nums">{proof.floor.toFixed(3)}</b>, clear of {SITE.aucTarget.toFixed(3)}, so the bound alone fills this jar.{' '}
+                {live?.unlocked
+                  ? `${persona.mascot} has earned a launch.`
+                  : live?.blockedBy
+                    ? `The live jar also needs all four gates, and the ${GATE_NAMES[live.blockedBy]} gate still holds it at ${Math.round(SITE.gates.jarCapWhenBlocked * 100)}%.`
+                    : 'The live jar also needs all four gates to pass.'}
               </>
             ) : (
               <>

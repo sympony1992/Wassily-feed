@@ -7,7 +7,7 @@ import { useBound, usePersona, useStore } from '@/store/useStore';
 import { IconArrowRight } from '../ui/Icons';
 import { Badge, Card, CardHeader, Meter } from '../ui/primitives';
 
-const GATE_NAMES: Record<string, string> = { n_samples: 'sample size', n_positive: 'survivor count', auc_std: 'fold variance', time_split: 'time split' };
+export const GATE_NAMES: Record<string, string> = { n_samples: 'sample size', n_positive: 'survivor count', auc_std: 'fold variance', time_split: 'time split' };
 
 export function JarGlyph({ fraction, className }: { fraction: number; className?: string }) {
   const v = Math.max(0, Math.min(1, fraction));
