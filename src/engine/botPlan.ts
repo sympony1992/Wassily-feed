@@ -24,7 +24,7 @@ export interface BotPlan {
  */
 export function planTrade(t: Token, model: Pick<ModelRun, 'n' | 'medianHolders' | 'model'> | null, proof: Pick<ProofView, 'unlocked'> | null): BotPlan {
   const scoring = model && model.n >= 20 ? model : null;
-  // A bot buying at entry cannot see the 48h holder count, so score with the median as the Brain does.
+  // A bot buying at entry may not have the holder count yet, so score with the median as the Brain does.
   const score = scoring
     ? predictProba(scoring.model, featurize({ name: t.name, lore: t.lore, loreMissing: t.loreWithheld || !t.lore, hour: t.hour, dow: t.dow, holders: scoring.medianHolders }))
     : null;

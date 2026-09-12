@@ -118,18 +118,23 @@ export class Agent extends EventEmitter {
     const oldest = pending.reduce((min, t) => Math.min(min, Date.parse(t.launchedAt)), Infinity);
     return {
       labelled: this.labelled().length,
+      ready: this.trainingSize(), // labelled and with a holder count: what the model trains on
       needed: SITE.gates.nSamplesMin,
       pending: pending.length,
-      next_label_at: Number.isFinite(oldest) ? new Date(oldest + SITE.holderSampleHours * 3_600_000).toISOString() : null,
+      next_label_at: Number.isFinite(oldest) ? new Date(oldest + SITE.labelHours * 3_600_000).toISOString() : null,
     };
   }
 
-  /** Training rows; unknown holder counts are imputed with the known median. */
+  /** How many rows the next model trains on. */
+  trainingSize() {
+    return this.labelled().filter((t) => !t.holdersMissing).length;
+  }
+
+  /** Training rows: labelled tokens whose holder count is known. A count still being replayed waits instead of being guessed. */
   private rows(limit?: number) {
     const all = this.labelled();
     const slice = limit == null ? all : all.slice(0, limit);
-    const med = median(slice.filter((t) => !t.holdersMissing).map((t) => t.holders)) || 288;
-    return slice.map((t) => toTrainingRow(t.holdersMissing ? { ...t, holders: med } : t));
+    return slice.filter((t) => !t.holdersMissing).map((t) => toTrainingRow(t));
   }
 
   runCycle(at = new Date()): ModelRun {

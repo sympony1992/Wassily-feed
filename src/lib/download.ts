@@ -22,11 +22,12 @@ const csvCell = (v: string | number | boolean) => {
 
 /** Every labelled token, BOM-prefixed so spreadsheets open it as UTF-8. */
 export function datasetCsv(tokens: readonly Token[]): string {
-  const header = ['mint', 'name', 'symbol', 'launched_at', 'launch_hour_utc', 'dow', 'holders_48h', 'lore_withheld', 'peak_mc', 'status', 'passed_label'];
+  const header = ['mint', 'name', 'symbol', 'launched_at', 'launch_hour_utc', 'dow', `holders_${SITE.holderSampleHours}h`, 'lore_withheld', 'peak_mc', 'status', 'passed_label'];
   const lines = tokens
     .filter((t) => t.status !== 'pending')
     .map((t) =>
-      [t.mint, t.name, t.symbol, t.launchedAt, t.hour, t.dow, t.holders, t.loreWithheld, t.peakMc, t.status, t.status === 'passed' ? 1 : 0].map(csvCell).join(','),
+      // A holder count not known yet is left blank, never written as zero.
+      [t.mint, t.name, t.symbol, t.launchedAt, t.hour, t.dow, t.holdersMissing ? '' : t.holders, t.loreWithheld, t.peakMc, t.status, t.status === 'passed' ? 1 : 0].map(csvCell).join(','),
     );
   return String.fromCharCode(0xfeff) + [header.join(','), ...lines].join('\r\n');
 }
@@ -37,7 +38,8 @@ export function methodology(persona: Persona, bound: BoundDef) {
     universe: `Every token launched on ${SITE.chain}`,
     study_population: `Tokens with peak market cap >= $${SITE.entryMc.toLocaleString('en-US')}`,
     positive_label: `Peak market cap reached >= $${SITE.targetMc.toLocaleString('en-US')}`,
-    negative_label: `Reached the entry line, did not reach the target, age >= ${SITE.holderSampleHours} hours`,
+    negative_label: `Reached the entry line, did not reach the target, age >= ${SITE.labelHours} hours`,
+    holder_count: `ERC-20 holders ${SITE.holderSampleHours}h after launch; a token whose count is not known yet is left out of training`,
     features: FEATURE_NAMES,
     capacity_d: FEATURE_NAMES.length,
     model: 'Class-balanced L2 logistic regression (IRLS), stratified k-fold CV',

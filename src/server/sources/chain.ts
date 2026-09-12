@@ -55,6 +55,7 @@ interface SavedState {
   slowCursor: number; // other venues, which need GeckoTerminal and follow at its pace
   liveFrom: number; // every launch at or below this block has an outcome
   rejected: string[]; // tokens that traded but stayed under the entry line
+  holdersSampledHours?: number; // hour mark the stored holder counts were taken at; another mark means they are counted again
 }
 
 interface DexPair {
@@ -70,12 +71,13 @@ interface DexPair {
 interface HolderJob {
   token: string;
   fromBlock: number;
-  windowEnd: number;
+  at: number; // ms: holders are counted as of this moment
   tries: number;
 }
 
 const HOUR = 3_600_000;
-const WINDOW_MS = SITE.holderSampleHours * HOUR;
+const WINDOW_MS = SITE.labelHours * HOUR; // the outcome window: a token is labelled once it is this old
+const HOLDERS_AT_MS = SITE.holderSampleHours * HOUR; // holders are counted this long after launch, well before the outcome is known
 const CHUNK = 30_000; // blocks per backfill step, about 50 minutes of chain time
 const MINT_LOOKBACK = 900_000; // about a day of blocks before a DEX launch, where the supply is usually minted
 const QUOTE_MIN_POOLS = 8; // a token paired in this many launches of one step is a quote asset, not a launch
@@ -102,8 +104,9 @@ const hueOf = (token: string) => HUES[parseInt(token.slice(2, 4), 16) % HUES.len
  * Live Robinhood Chain ingest. Every pool launch is read from the chain and
  * each token's outcome is its peak market cap over its first 48 hours:
  * for Pons launchpad tokens straight from the curve's trade events, for other
- * venues from GeckoTerminal's hourly candles. Holders at 48h are replayed from
- * transfers. On first start past launches are labelled the same way, newest
+ * venues from GeckoTerminal's hourly candles. Holders are counted one hour
+ * after launch, replayed from transfers, so the feature is fixed long before
+ * the outcome. On first start past launches are labelled the same way, newest
  * first, so the study does not start empty.
  */
 export class ChainSource {
@@ -164,7 +167,7 @@ export class ChainSource {
     this.prices = new QuotePrices(this.gecko, () => Math.floor(this.now() / 1000));
     this.stats.gecko = this.gecko.stats;
     this.stats.rpc = this.rpc.stats;
-    this.trainedAt = agent.labelled().length;
+    this.trainedAt = agent.trainingSize();
   }
 
   private now() {
@@ -245,11 +248,28 @@ export class ChainSource {
       this.save();
       this.o.log?.(`chain: labelling launches from block ${from} to ${edge - 1}, then following the head from ${edge}`);
     }
+    // Holder counts taken at another hour mark (48h before holders moved to one hour) are counted again,
+    // and the model they fed is replaced now rather than at the next cycle.
+    if (this.state.holdersSampledHours !== SITE.holderSampleHours) {
+      let recount = 0;
+      for (const t of [...this.agent.tokens.values()]) {
+        if (t.status === 'pending' || t.holdersMissing) continue;
+        this.agent.upsert({ ...t, holders: 0, holdersMissing: true }, false);
+        recount++;
+      }
+      this.state.holdersSampledHours = SITE.holderSampleHours;
+      this.save();
+      if (recount) {
+        this.o.log?.(`chain: counting holders again, ${SITE.holderSampleHours}h after launch, for ${recount} tokens`);
+        this.trainedAt = 0;
+        this.agent.runCycle();
+      }
+    }
     // Holder counts that were still being replayed when the process stopped.
     for (const t of this.agent.tokens.values()) {
       if (t.status === 'pending' || !t.holdersMissing) continue;
       const launched = Date.parse(t.launchedAt);
-      this.holderQueue.push({ token: t.mint.toLowerCase(), fromBlock: Math.max(0, this.blockFor(launched) - MINT_LOOKBACK), windowEnd: launched + WINDOW_MS, tries: 0 });
+      this.holderQueue.push({ token: t.mint.toLowerCase(), fromBlock: Math.max(0, this.blockFor(launched) - MINT_LOOKBACK), at: launched + HOLDERS_AT_MS, tries: 0 });
     }
     // Logos are looked up again after a restart: the queue lives in memory.
     for (const t of this.agent.tokens.values()) if (!t.logo) this.logoQueue.add(t.mint.toLowerCase());
@@ -543,18 +563,18 @@ export class ChainSource {
       announce,
     );
     this.stats.labelled++;
-    this.holderQueue.push({ token: c.token, fromBlock: Math.max(0, c.curve ? c.firstBlock : c.firstBlock - MINT_LOOKBACK), windowEnd: launchedAt + WINDOW_MS, tries: 0 });
+    this.holderQueue.push({ token: c.token, fromBlock: Math.max(0, c.curve ? c.firstBlock : c.firstBlock - MINT_LOOKBACK), at: launchedAt + HOLDERS_AT_MS, tries: 0 });
     if (!logo && !prior?.logo) this.logoQueue.add(c.token);
   }
   // #endregion
 
-  /** Holder counts at 48h, replayed from transfers a few tokens at a time. */
+  /** Holder counts one hour after launch, replayed from transfers a few tokens at a time. A token trains once its count is in. */
   private async holdersBatch() {
     const batch = this.holderQueue.splice(0, HOLDERS_PARALLEL);
     await Promise.all(
       batch.map(async (job) => {
         try {
-          const end = Math.min(this.stats.head || this.anchor.block, this.blockFor(job.windowEnd));
+          const end = Math.min(this.stats.head || this.anchor.block, this.blockFor(job.at));
           const holders = await holdersAt(this.rpc, job.token, job.fromBlock, end);
           const t = this.agent.tokens.get(job.token);
           if (t && t.status !== 'pending') this.agent.upsert({ ...t, holders, holdersMissing: false }, false);
@@ -565,6 +585,7 @@ export class ChainSource {
       }),
     );
     this.stats.holdersQueued = this.holderQueue.length;
+    this.retrainIfDue();
   }
 
   /** Public for tests. */
@@ -742,7 +763,7 @@ export class ChainSource {
   }
 
   private retrainIfDue() {
-    const n = this.agent.labelled().length;
+    const n = this.agent.trainingSize(); // labels still waiting for their holder count do not train yet
     const latest = this.agent.latest;
     const crossedMark = RETRAIN_AT.some((mark) => this.trainedAt < mark && n >= mark);
     const grown = n >= RETRAIN_AT[0] && n >= (latest?.n ?? 0) * RETRAIN_GROWTH && (!latest || this.now() - Date.parse(latest.ranAt) >= RETRAIN_MIN_GAP_MS);

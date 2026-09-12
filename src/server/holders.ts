@@ -1,7 +1,8 @@
 /**
- * One holder count per token, taken once at the 48h label. `template` is an
- * explorer URL containing "{address}" — Blockscout v2 returns `holders_count`.
- * Returns null when unavailable; the trainer then imputes the median.
+ * One holder count per token for the legacy DexScreener source, taken when it
+ * labels the token (the chain source counts holders from transfers instead).
+ * `template` is an explorer URL containing "{address}" — Blockscout v2 returns
+ * `holders_count`. Returns null when unavailable; the token then stays out of training.
  */
 export async function sampleHolders(template: string, address: string, fetchImpl: typeof fetch = fetch): Promise<number | null> {
   if (!template) return null;

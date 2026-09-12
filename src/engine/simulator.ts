@@ -70,7 +70,7 @@ export class Market {
     for (let i = 0; i < count; i++) {
       const dayOffset = 2 + Math.floor(this.rng() * 10);
       const at = midnight - dayOffset * DAY + this.sampleHour() * HOUR + Math.floor(this.rng() * 60) * 60_000;
-      out.push(this.make(Math.min(at, now - SITE.holderSampleHours * HOUR)));
+      out.push(this.make(Math.min(at, now - SITE.labelHours * HOUR)));
     }
     return out.sort((a, b) => Date.parse(a.launchedAt) - Date.parse(b.launchedAt));
   }
@@ -79,7 +79,7 @@ export class Market {
   arrival(now: number, name?: string): Token {
     const midnight = Math.floor(now / DAY) * DAY;
     let at = midnight - 2 * DAY + this.sampleHour() * HOUR + Math.floor(this.rng() * 60) * 60_000;
-    if (at > now - SITE.holderSampleHours * HOUR) at -= DAY;
+    if (at > now - SITE.labelHours * HOUR) at -= DAY;
     return this.make(at, name);
   }
 

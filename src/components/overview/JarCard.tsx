@@ -62,17 +62,23 @@ function WarmingUp() {
     return () => clearInterval(t);
   }, []);
   if (!warmup) return null;
-  const share = warmup.labelled / warmup.needed;
+  const share = Math.min(1, warmup.ready / warmup.needed);
+  const counting = warmup.labelled - warmup.ready;
 
   return (
     <div className="mt-4 space-y-3 rounded-lg border border-border bg-surface-2 p-3">
       <div className="flex items-baseline justify-between gap-3 text-sm">
         <span className="font-medium text-fg">Warming up</span>
         <span className="font-mono text-xs text-muted tabular-nums">
-          {fmtInt(warmup.labelled)} / {fmtInt(warmup.needed)} labelled
+          {fmtInt(warmup.ready)} / {fmtInt(warmup.needed)} ready
         </span>
       </div>
-      <Meter value={share} label="Labelled tokens towards the sample-size gate" />
+      <Meter value={share} label="Tokens with a label and a holder count, towards the sample-size gate" />
+      {counting > 0 && (
+        <p className="text-xs text-pretty text-muted">
+          Counting holders {SITE.holderSampleHours}h after launch for <span className="font-mono text-fg tabular-nums">{fmtInt(counting)}</span> labelled tokens.
+        </p>
+      )}
       <dl className="grid grid-cols-2 gap-3 text-xs">
         <div>
           <dt className="text-muted">Being watched</dt>
@@ -126,7 +132,7 @@ export function JarCard() {
           <p className="mt-1 text-sm text-pretty text-muted">
             {enough
               ? `${unit} drops in only when the proven floor clears AUC ${SITE.aucTarget.toFixed(2)}.`
-              : `The jar stays empty until real tokens are labelled, ${SITE.holderSampleHours}h after launch. No numbers are shown before they exist.`}
+              : `The jar stays empty until real tokens are labelled, ${SITE.labelHours}h after launch. No numbers are shown before they exist.`}
           </p>
 
           {enough ? (

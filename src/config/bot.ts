@@ -8,7 +8,7 @@ export const BOT_DRAFT = {
   entryMc: SITE.entryMc,
   takeProfitMc: SITE.targetMc,
   stopLossPct: 0.4, // from the entry cap
-  maxHoldHours: SITE.holderSampleHours,
+  maxHoldHours: SITE.labelHours,
   minScore: 0.6,
   minStakeUsd: 10,
   maxStakeUsd: 50,

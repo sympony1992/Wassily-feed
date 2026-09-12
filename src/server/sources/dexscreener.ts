@@ -180,7 +180,7 @@ export class DexScreenerSource {
   // #region stage:ingest
   private async label() {
     const due = [...this.agent.tokens.values()].filter(
-      (t) => t.status === 'pending' && this.now() - Date.parse(t.launchedAt) >= SITE.holderSampleHours * HOUR,
+      (t) => t.status === 'pending' && this.now() - Date.parse(t.launchedAt) >= SITE.labelHours * HOUR,
     );
     for (const t of due) {
       if (t.peakMc < SITE.entryMc) {

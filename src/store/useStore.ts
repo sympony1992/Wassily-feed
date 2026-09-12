@@ -13,6 +13,7 @@ export interface SimParams {
 
 export interface Warmup {
   labelled: number;
+  ready: number; // labelled and with a holder count: what the model trains on
   needed: number;
   pending: number;
   nextLabelAt: string | null; // when the oldest watched token reaches its 48h label

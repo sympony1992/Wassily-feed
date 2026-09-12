@@ -57,7 +57,7 @@ flowchart TD
    - peak at or above $30K: *passed*;
    - anything in between: *stalled*.
 
-   Its holder count at 48 hours is replayed from its ERC-20 `Transfer` events.
+   Its holder count **one hour after launch** is replayed from its ERC-20 `Transfer` events. That is long before the 48-hour outcome is known, so the feature cannot simply echo a pump that already happened. A token whose count is still being replayed stays out of training rather than getting a guessed value.
 4. **Backfill.** On first start the last 14 days of launches are labelled the same way, newest first, as a uniform 50% random sample (`BACKFILL_DAYS`, `BACKFILL_SAMPLE`), so the study starts with real history instead of an empty jar. New launches are all checked.
 5. **Learn.** Every cycle (hourly in live mode) Wassily fits a class-balanced, L2-regularised logistic regression by Newton's method (IRLS). It then checks the fit three ways:
    - 5-fold cross-validation;
@@ -73,7 +73,7 @@ flowchart TD
 |---|---|
 | Launch hour | 2 (sine and cosine) |
 | Day of week | 7 |
-| Holder count, sampled once at 48 h | 1 |
+| Holder count, taken once 1 h after launch | 1 |
 | Text shape: lore length, missing-lore flag, words in the name | 3 |
 | Lore words, hashed into buckets | 15 (zero on live data, see below) |
 

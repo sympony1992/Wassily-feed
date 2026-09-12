@@ -1,4 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Agent } from '../agent';
 import { NATIVE, TOPICS, WETH } from '../chain/abi';
@@ -24,8 +27,9 @@ const Z = '0x5000000000000000000000000000000000000005'; // young DEX launch, wat
 const POOL_Z = '0x5000000000000000000000000000000000000d05';
 const A = '0xa00000000000000000000000000000000000000a';
 const B = '0xb00000000000000000000000000000000000000b';
+const C = '0xc00000000000000000000000000000000000000c'; // buys X after its first hour
 
-function world() {
+function world(stateFile: string | null = null) {
   const clock = { head: 1_000_000, headS: 1_789_000_000 };
   const ts = (block: number) => clock.headS - (clock.head - block); // one block per second
   const edge = clock.head - 48 * HOUR_S; // 48h ago at the first start
@@ -47,6 +51,7 @@ function world() {
     { address: X, blockNumber: hex(blocks.x), topics: [TOPICS.transfer, topic(NATIVE), topic(CURVE_X)], data: `0x${pad(hex(10n ** 27n))}` },
     { address: X, blockNumber: hex(blocks.x + 5), topics: [TOPICS.transfer, topic(CURVE_X), topic(A)], data: `0x${pad(hex(10n ** 24n))}` },
     { address: X, blockNumber: hex(blocks.x + 9), topics: [TOPICS.transfer, topic(CURVE_X), topic(B)], data: `0x${pad(hex(10n ** 24n))}` },
+    { address: X, blockNumber: hex(blocks.x + 2 * HOUR_S), topics: [TOPICS.transfer, topic(CURVE_X), topic(C)], data: `0x${pad(hex(10n ** 24n))}` }, // after the first hour: not counted
   ].map((l) => ({ address: '0xfactory', transactionHash: '0x', logIndex: '0x0', ...l }));
 
   const erc20: Record<string, [string, string]> = { [X]: ['Patient Otter', 'POTR'], [Y]: ['Quiet', 'QT'], [Z]: ['Young Heron', 'YHRN'] };
@@ -108,21 +113,22 @@ function world() {
   }) as typeof fetch;
 
   const agent = new Agent('hoeffding', null, 3600);
-  const source = new ChainSource(agent, {
-    rpcUrl: 'https://rpc.test',
-    geckoApi: 'https://gecko.test',
-    geckoPerMinute: 1000,
-    dexscreenerApi: 'https://dex.test',
-    network: 'robinhood',
-    pollSeconds: 60,
-    backfillDays: 3,
-    backfillSample: 1,
-    stateFile: null,
-    fetchImpl,
-    now: () => clock.headS * 1000,
-    sleep: async () => {},
-  });
-  return { clock, agent, source };
+  const make = () =>
+    new ChainSource(agent, {
+      rpcUrl: 'https://rpc.test',
+      geckoApi: 'https://gecko.test',
+      geckoPerMinute: 1000,
+      dexscreenerApi: 'https://dex.test',
+      network: 'robinhood',
+      pollSeconds: 60,
+      backfillDays: 3,
+      backfillSample: 1,
+      stateFile,
+      fetchImpl,
+      now: () => clock.headS * 1000,
+      sleep: async () => {},
+    });
+  return { clock, agent, source: make(), make };
 }
 
 describe('Chain source (mocked chain, DexScreener and GeckoTerminal)', () => {
@@ -143,7 +149,7 @@ describe('Chain source (mocked chain, DexScreener and GeckoTerminal)', () => {
       peakMc: 50_000, // from the curve's own trades; the trade after 48h does not count
       name: 'Patient Otter',
       symbol: 'POTR',
-      holders: 3, // the curve, A and B
+      holders: 3, // the curve, A and B; C bought after the first hour
       holdersMissing: false,
       deployer: CREATOR,
       loreRaw: '',
@@ -189,6 +195,59 @@ describe('Chain source (mocked chain, DexScreener and GeckoTerminal)', () => {
     agent.start();
     agent.stop();
     expect(agent.runs.length).toBe(before + 1);
+  });
+
+  it('counts holders again after an upgrade from counts taken at another hour', async () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'chain-')), 'chain.json');
+    const { agent, source, make } = world(file);
+    await source.init();
+    for (let i = 0; i < 5; i++) await source.backfillStep();
+    await source.drainHolders();
+    expect(agent.tokens.get(X)).toMatchObject({ holders: 3, holdersMissing: false });
+    expect(JSON.parse(readFileSync(file, 'utf8')).holdersSampledHours).toBe(1);
+
+    // A state written when holders were counted at 48h: C's later buy was in the count.
+    const saved = JSON.parse(readFileSync(file, 'utf8'));
+    delete saved.holdersSampledHours;
+    writeFileSync(file, JSON.stringify(saved));
+    agent.upsert({ ...agent.tokens.get(X)!, holders: 4 }, false);
+
+    const upgraded = make();
+    await upgraded.init();
+    expect(agent.tokens.get(X)).toMatchObject({ holdersMissing: true });
+    expect(agent.latest?.n).toBe(0); // the model fed by the old counts was replaced at once
+    expect(JSON.parse(readFileSync(file, 'utf8')).holdersSampledHours).toBe(1);
+
+    await upgraded.drainHolders();
+    expect(agent.tokens.get(X)).toMatchObject({ holders: 3, holdersMissing: false });
+  });
+
+  it('trains only on tokens whose holder count is known', () => {
+    const agent = new Agent('hoeffding', null, 3600);
+    for (let i = 0; i < 40; i++) {
+      agent.upsert(
+        {
+          mint: `0x${(i + 1).toString(16).padStart(40, '0')}`,
+          name: `Token ${i}`,
+          symbol: 'TKN',
+          lore: '',
+          loreWithheld: false,
+          holders: 5 + i,
+          holdersMissing: i >= 30,
+          peakMc: i % 3 ? 15_000 : 40_000,
+          status: i % 3 ? 'stalled' : 'passed',
+          hour: i % 24,
+          dow: i % 7,
+          launchedAt: new Date(1_789_000_000_000 + i * 60_000).toISOString(),
+          deployer: '',
+          hue: 38,
+        },
+        false,
+      );
+    }
+    expect(agent.runCycle().n).toBe(30);
+    expect(agent.warmup()).toMatchObject({ labelled: 40, ready: 30 });
+    expect(agent.counters().median_holders).toBe(20); // known counts only
   });
 
   it('still accepts DATA_SOURCE=dexscreener as the live source', () => {

@@ -59,8 +59,8 @@ export function AboutView() {
         <Section title={`2. Why it fits ${SITE.chain}`}>{persona.fit}</Section>
         <Section title={`3. What ${persona.mascot} measures`}>
           Every token on {SITE.chain} DEX pools that reaches <b className="text-fg">${fmtInt(SITE.entryMc)} peak market cap</b> joins the study. {persona.mascot} records whether it reaches{' '}
-          <b className="text-fg">${fmtInt(SITE.targetMc)} peak market cap</b>, using four feature families: launch hour (sine and cosine), day of week, a holder count sampled once at{' '}
-          {SITE.holderSampleHours} hours, and the lore text (length, a missing flag, words in the name, and a 15-bucket hashed bag of words). That makes d = {SITE.capacityD}. On live data the lore
+          <b className="text-fg">${fmtInt(SITE.targetMc)} peak market cap</b>, using four feature families: launch hour (sine and cosine), day of week, a holder count taken once,{' '}
+          {SITE.holderSampleHours}h after launch and long before the {SITE.labelHours}h outcome is known, and the lore text (length, a missing flag, words in the name, and a 15-bucket hashed bag of words). That makes d = {SITE.capacityD}. On live data the lore
           columns stay zero: a token&apos;s description cannot be observed for past launches, so no token trains on it. Nothing derived from price, volume or liquidity is ever a feature.
         </Section>
 

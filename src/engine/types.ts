@@ -16,7 +16,7 @@ export interface Token {
   deployer: string;
   hue: number;
   logo?: string;
-  holdersMissing?: boolean; // no explorer configured: imputed with the median at training time
+  holdersMissing?: boolean; // count not known (yet): the token stays out of training until it is
 }
 
 /** What the trainer needs from a token — nothing derived from price. */

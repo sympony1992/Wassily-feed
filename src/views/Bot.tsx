@@ -63,7 +63,7 @@ const DECISION: Record<BotDecision, { label: string; tone: 'positive' | 'accent'
 const QUESTIONS = [
   {
     title: 'Holders at entry',
-    body: `The model learns from the holder count at ${SITE.holderSampleHours}h, which a bot buying at ${fmtUsdK(BOT_DRAFT.entryMc)} cannot see. It needs a model trained only on what is known at entry.`,
+    body: `The model learns from the holder count ${SITE.holderSampleHours}h after launch. A bot buying at ${fmtUsdK(BOT_DRAFT.entryMc)} before then cannot see it yet, so it needs a model trained only on what is known at entry.`,
   },
   { title: 'Where orders go', body: `Which ${SITE.chain} router executes, and how slippage and thin liquidity are checked before a buy.` },
   { title: 'Wallet and custody', body: 'A dedicated wallet with a hard balance cap, keys kept off the web server, and a kill switch.' },
@@ -160,7 +160,7 @@ function AnalysisCard({ row, proof }: { row: Row | null; proof: ProofView | null
             <Fact term="Holders used" value={plan.holdersUsed == null ? '—' : `${fmtInt(plan.holdersUsed)} (median)`} />
           </dl>
           <p className="mt-2 text-xs text-pretty text-subtle">
-            Scored in your browser from the published model, with the median holder count standing in for the {SITE.holderSampleHours}h reading a bot would not have yet. The
+            Scored in your browser from the published model, with the median holder count standing in for the {SITE.holderSampleHours}h reading a bot may not have yet. The
             server can see lore this page cannot, so its own score may differ slightly.
           </p>
         </div>

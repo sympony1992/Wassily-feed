@@ -20,7 +20,7 @@ export function KpiStrip() {
       <Stat
         label="ROC-AUC · 5-fold"
         value={model && enough ? model.auc.toFixed(3) : '—'}
-        hint={model && enough ? `σ ${model.aucStd.toFixed(3)}` : warmup ? `warming up · ${fmtInt(warmup.labelled)}/${fmtInt(warmup.needed)} labelled` : 'connecting…'}
+        hint={model && enough ? `σ ${model.aucStd.toFixed(3)}` : warmup ? `warming up · ${fmtInt(warmup.ready)}/${fmtInt(warmup.needed)} ready` : 'connecting…'}
       />
       <Stat
         label="Proven floor"
@@ -29,7 +29,7 @@ export function KpiStrip() {
       />
       <Stat label={`Above ${fmtUsdK(SITE.entryMc)}`} value={fmtInt(tally.all)} hint="labelled tokens" />
       <Stat label={`Reached ${fmtUsdK(SITE.targetMc)}`} tone="positive" value={fmtInt(tally.pass)} hint={`${winRate.toFixed(1)}% · ${fmtInt(tally.stall)} stalled`} />
-      <Stat label="Median holders" value={fmtInt(medianHolders)} hint={`sampled at ${SITE.holderSampleHours}h`} />
+      <Stat label="Median holders" value={medianHolders ? fmtInt(medianHolders) : '—'} hint={`${SITE.holderSampleHours}h after launch`} />
     </div>
   );
 }

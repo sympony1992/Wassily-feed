@@ -1,3 +1,4 @@
+import { SITE } from '@/config/site';
 import type { TrainingRow } from './types';
 
 export const LORE_DIMS = 15;
@@ -52,7 +53,7 @@ export function fnv1a(s: string): number {
 
 /** Feature columns grouped into the families shown on the dashboard. */
 export const FEATURE_GROUPS: { key: string; label: string; match: (name: string) => boolean }[] = [
-  { key: 'holders_log', label: 'Holders at 48h (log scale)', match: (n) => n === 'holders_log' },
+  { key: 'holders_log', label: `Holders ${SITE.holderSampleHours}h after launch (log scale)`, match: (n) => n === 'holders_log' },
   { key: 'hour_cos', label: 'Launch hour · cosine of the 24h cycle', match: (n) => n === 'hour_cos' },
   { key: 'hour_sin', label: 'Launch hour · sine of the 24h cycle', match: (n) => n === 'hour_sin' },
   { key: 'dow', label: 'Day-of-week pattern', match: (n) => n.startsWith('dow_') },

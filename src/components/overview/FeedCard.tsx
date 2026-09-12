@@ -10,7 +10,7 @@ import { Badge, Button, Card, CardHeader } from '../ui/primitives';
 
 export function StatusBadge({ status }: { status: Token['status'] }) {
   if (status === 'passed') return <Badge tone="positive">{fmtUsdK(SITE.targetMc)}+</Badge>;
-  if (status === 'pending') return <Badge title={`Labelled at ${SITE.holderSampleHours}h`}>watching</Badge>;
+  if (status === 'pending') return <Badge title={`Labelled at ${SITE.labelHours}h`}>watching</Badge>;
   return <Badge tone="negative">stalled</Badge>;
 }
 
@@ -60,7 +60,7 @@ export function TokenRow({ t, compact = false }: { t: Token; compact?: boolean }
         <div className="truncate text-xs text-muted">{t.loreWithheld ? 'lore withheld' : t.lore || 'no lore'}</div>
       </div>
       {!compact && (
-        <div className="hidden text-right font-mono text-xs text-muted tabular-nums sm:block" title={t.holdersMissing ? 'holder count unavailable' : 'holders at 48h'}>
+        <div className="hidden text-right font-mono text-xs text-muted tabular-nums sm:block" title={t.holdersMissing ? 'holder count not known yet' : `holders ${SITE.holderSampleHours}h after launch`}>
           {t.holdersMissing || t.status === 'pending' ? '—' : fmtInt(t.holders)}
         </div>
       )}

@@ -18,7 +18,8 @@ export const SITE = {
   // Study definition
   entryMc: 10_000,
   targetMc: 30_000,
-  holderSampleHours: 48,
+  labelHours: 48, // the outcome: peak market cap over a token's first 48 hours
+  holderSampleHours: 1, // the holder feature: counted one hour after launch, long before the outcome is known
 
   // Jar math
   aucFloor: 0.5,

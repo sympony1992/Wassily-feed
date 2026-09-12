@@ -104,7 +104,7 @@ function applyCounters(c: any) {
   set((s) => ({
     tally: { all, pass, stall: c.stalled ?? all - pass },
     counters: { chain: all + pending, dex: all + pending, rpc: all },
-    medianHolders: c.median_holders ?? s.medianHolders,
+    medianHolders: c.median_holders === undefined ? s.medianHolders : (c.median_holders ?? 0), // null: no holder count known yet
   }));
 }
 
@@ -128,7 +128,7 @@ async function refreshState(includeFeed: boolean) {
       lift: f.lift ?? [],
       baseline: f.baseline ?? 0,
       loreCorr: f.lore_corr ?? 0,
-      warmup: w ? { labelled: w.labelled, needed: w.needed, pending: w.pending, nextLabelAt: w.next_label_at } : null,
+      warmup: w ? { labelled: w.labelled, ready: w.ready ?? w.labelled, needed: w.needed, pending: w.pending, nextLabelAt: w.next_label_at } : null,
       ...(includeFeed ? { feed: (data.tokens ?? []).map(mapToken).slice(0, SITE.consoleFeedCap) } : {}),
     });
     applyCounters(data.counters);
