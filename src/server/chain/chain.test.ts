@@ -191,3 +191,17 @@ describe('TokenInfoCache', () => {
     expect(asked).toHaveLength(2);
   });
 });
+
+describe('GeckoClient fairness', () => {
+  it('still serves the low lane while high calls keep waiting', async () => {
+    const order: string[] = [];
+    const fetchImpl = (async (input: string | URL | Request) => {
+      order.push(String(input).includes('/tokens/multi/') ? 'low' : 'high');
+      return new Response(JSON.stringify({ data: [] }), { headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const gecko = new GeckoClient({ network: 'robinhood', fetchImpl, sleep: async () => {}, now: () => 0 });
+    await Promise.all([gecko.tokens([A], 'low'), ...Array.from({ length: 6 }, (_, i) => gecko.peakPrice(C, A, 0, 3600 + i, 'high'))]);
+    expect(order[0]).toBe('high');
+    expect(order.slice(0, 4)).toContain('low');
+  });
+});

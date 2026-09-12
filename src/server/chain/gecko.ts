@@ -44,15 +44,17 @@ type Candles = { data?: { attributes?: { ohlcv_list?: [number, number, number, n
 
 const BATCH = 30; // the multi endpoints accept up to 30 addresses
 const MIN_PER_MINUTE = 4;
+const LOW_SHARE = 4; // while both lanes wait, every 4th call goes to the low lane so it never starves
 const stripNetwork = (id = '') => id.slice(id.indexOf('_') + 1).toLowerCase();
 
 export class GeckoClient {
-  readonly stats = { calls: 0, throttled: 0, failed: 0, perMinute: 0, waitingHigh: 0, waitingLow: 0 };
+  readonly stats = { calls: 0, throttled: 0, failed: 0, perMinute: 0, waitingHigh: 0, waitingLow: 0, avgWaitSecondsHigh: 0, avgWaitSecondsLow: 0 };
   private nextAt = 0;
   private readonly ceiling: number;
   private pace: number;
-  private readonly lanes: Record<GeckoLane, (() => void)[]> = { high: [], low: [] };
+  private readonly lanes: Record<GeckoLane, { release: () => void; at: number }[]> = { high: [], low: [] };
   private pumping = false;
+  private served = 0;
 
   constructor(private readonly o: GeckoOptions) {
     this.ceiling = o.perMinute ?? 28;
@@ -74,10 +76,10 @@ export class GeckoClient {
     return Math.max(0, this.nextAt - this.now()) + (queued * 60_000) / this.pace;
   }
 
-  /** Resolves when it is this call's turn: one call per gap, high lane first. */
+  /** Resolves when it is this call's turn: one call per gap, high lane first but never exclusively. */
   private turn(lane: GeckoLane) {
     return new Promise<void>((resolve) => {
-      this.lanes[lane].push(resolve);
+      this.lanes[lane].push({ release: resolve, at: this.now() });
       this.countWaiting();
       if (!this.pumping) void this.pump();
     });
@@ -87,10 +89,16 @@ export class GeckoClient {
     this.pumping = true;
     while (this.lanes.high.length || this.lanes.low.length) {
       await this.wait(this.nextAt - this.now());
-      const release = this.lanes.high.shift() ?? this.lanes.low.shift();
+      const lane: GeckoLane = this.lanes.low.length && (!this.lanes.high.length || this.served % LOW_SHARE === LOW_SHARE - 1) ? 'low' : 'high';
+      const next = this.lanes[lane].shift();
+      this.served++;
       this.nextAt = Math.max(this.now(), this.nextAt) + 60_000 / this.pace;
       this.countWaiting();
-      release?.();
+      if (next) {
+        const key = lane === 'high' ? 'avgWaitSecondsHigh' : 'avgWaitSecondsLow';
+        this.stats[key] = Math.round((this.stats[key] * 0.8 + ((this.now() - next.at) / 1000) * 0.2) * 10) / 10;
+        next.release();
+      }
     }
     this.pumping = false;
   }

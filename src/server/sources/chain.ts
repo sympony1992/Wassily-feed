@@ -122,6 +122,8 @@ export class ChainSource {
     head: 0,
     lastTickAt: '',
     liveStage: '', // what the live tick is doing right now
+    tickSeconds: {} as Record<string, number>, // how long each stage of the last finished live tick took
+    stepSeconds: { pons: 0, dex: 0 }, // the last backfill step of each pass
     lastError: '',
     errorsByStage: {} as Record<string, number>,
     lastErrors: {} as Record<string, string>,
@@ -141,6 +143,9 @@ export class ChainSource {
   private readonly rejected = new Set<string>();
   private readonly quotes = new Set<string>([WETH, NATIVE]);
   private scannedTo = 0;
+  private stageKey = '';
+  private stageStartedAt = 0;
+  private readonly tickTimings: Record<string, number> = {};
   private tradesScannedTo = 0;
   private anchor = { block: 0, seconds: 0, perBlock: 0.1 };
   private trainedAt = 0;
@@ -271,11 +276,13 @@ export class ChainSource {
   async backfillStep() {
     const s = this.state;
     if (!s || s.backfillCursor <= s.backfillFrom) return;
+    const started = Date.now();
     const to = s.backfillCursor;
     const from = Math.max(s.backfillFrom, to - CHUNK + 1);
     const candidates = [...this.group(await this.launches(from, to, true)).values()].filter((c) => c.curve);
     await this.resolvePons(this.sampled(candidates), false);
     s.backfillCursor = from - 1;
+    this.stats.stepSeconds.pons = Math.round((Date.now() - started) / 1000);
     if (s.backfillCursor <= s.backfillFrom) this.o.log?.(`chain: Pons history labelled · ${this.agent.labelled().length} tokens so far`);
     this.save();
     this.retrainIfDue();
@@ -285,11 +292,13 @@ export class ChainSource {
   async slowStep() {
     const s = this.state;
     if (!s || s.slowCursor <= s.backfillFrom) return;
+    const started = Date.now();
     const to = s.slowCursor;
     const from = Math.max(s.backfillFrom, to - CHUNK + 1);
     const candidates = [...this.group(await this.launches(from, to, false)).values()].filter((c) => !c.curve);
     await this.resolveDex(this.sampled(candidates), false, 'low'); // history waits behind live labels
     s.slowCursor = from - 1;
+    this.stats.stepSeconds.dex = Math.round((Date.now() - started) / 1000);
     this.save();
     this.retrainIfDue();
   }
@@ -307,7 +316,7 @@ export class ChainSource {
 
   /** Follow the head: discover launches, label those that turned 48h, watch the rest. Public for tests. */
   async liveTick() {
-    this.stats.liveStage = 'reading launches';
+    this.setStage('reading launches');
     const head = await this.rpc.blockNumber();
     this.stats.head = head;
     if (head > this.scannedTo) {
@@ -323,15 +332,15 @@ export class ChainSource {
     const now = this.now();
     const matured = [...this.young.values()].filter((c) => c.launchedAt + WINDOW_MS <= now).slice(0, MATURED_PER_TICK);
     if (matured.length) {
-      this.stats.liveStage = `labelling ${matured.length} tokens that turned 48h`;
+      this.setStage('labelling', `labelling ${matured.length} tokens that turned 48h`);
       await this.resolvePons(matured.filter((c) => c.curve), true);
       this.slowLive.push(...matured.filter((c) => !c.curve));
       matured.forEach((c) => this.young.delete(c.token));
       this.retrainIfDue();
     }
-    this.stats.liveStage = 'following curve trades';
+    this.setStage('following curve trades');
     await this.scanCurveTrades(head, now);
-    this.stats.liveStage = 'updating the watch list';
+    this.setStage('updating the watch list');
     await this.watch(now);
 
     this.stats.slowQueued = this.slowLive.length;
@@ -342,7 +351,8 @@ export class ChainSource {
       this.save();
     }
     this.stats.lastTickAt = new Date(now).toISOString();
-    this.stats.liveStage = 'idle';
+    this.setStage('idle');
+    this.stats.tickSeconds = { ...this.tickTimings };
   }
 
   private async launches(from: number, to: number, count: boolean): Promise<(PoolLaunch & { at: number })[]> {
@@ -729,6 +739,15 @@ export class ChainSource {
       this.trainedAt = n;
       this.agent.runCycle();
     }
+  }
+
+  /** Names what the live tick is doing, and keeps how long each stage of the tick took. */
+  private setStage(key: string, label = key) {
+    const now = Date.now();
+    if (this.stageKey && this.stageKey !== 'idle') this.tickTimings[this.stageKey] = Math.round((now - this.stageStartedAt) / 1000);
+    this.stageKey = key;
+    this.stageStartedAt = now;
+    this.stats.liveStage = label;
   }
 
   private fail(stage: string, err: unknown) {
