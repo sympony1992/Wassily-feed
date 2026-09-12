@@ -66,7 +66,10 @@ describe('RpcClient', () => {
       const body = Number(toBlock) - Number(fromBlock) > 100 ? { error: { code: -32000, message: 'logs matched by query exceeds limit of 10000' } } : { result: [] };
       return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
     }) as typeof fetch;
-    await new RpcClient('https://rpc.test', { fetchImpl }).getLogs({ fromBlock: 0, toBlock: 200 });
+    const rpc = new RpcClient('https://rpc.test', { fetchImpl, sleep: async () => {} });
+    await rpc.getLogs({ fromBlock: 0, toBlock: 200 });
+    expect(rpc.stats).toMatchObject({ throttled: 1, retries: 1, splits: 1 });
+    expect(rpc.stats.perSecond).toBeLessThan(5); // a 429 slows the shared pace
     expect(ranges.slice(0, 2)).toEqual(['0-200', '0-200']); // after a 429 the same range is asked again
     expect(ranges).toEqual(expect.arrayContaining(['0-100', '101-200']));
   });

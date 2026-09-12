@@ -84,7 +84,7 @@ const RETRAIN_AT = [20, 200, 1000, 2000]; // labelled counts that trigger an ear
 const SLOW_LIVE_BATCH = 10;
 const MATURED_PER_TICK = 150; // after a restart the backlog is labelled in slices, so every tick finishes and saves its place
 const HOLDERS_PARALLEL = 3;
-const LOGO_MAX_BACKLOG_MS = 10_000; // logos only decorate the feed: fetch them when GeckoTerminal is idle
+const LOGO_BATCH_EVERY_MS = 60_000; // logos only decorate the feed: one GeckoTerminal call a minute, queued behind labelling
 const WATCH_SCAN_MAX_BLOCKS = 5_000;
 const HUES = [38, 152, 268, 196, 12, 88, 320];
 
@@ -111,6 +111,7 @@ export class ChainSource {
     neverTraded: 0,
     slowQueued: 0,
     holdersQueued: 0,
+    logosQueued: 0,
     errors: 0,
     head: 0,
     lastTickAt: '',
@@ -130,7 +131,7 @@ export class ChainSource {
   private readonly young = new Map<string, Candidate>();
   private readonly slowLive: Candidate[] = [];
   private readonly holderQueue: HolderJob[] = [];
-  private readonly logoQueue: string[] = [];
+  private readonly logoQueue = new Set<string>();
   private readonly rejected = new Set<string>();
   private readonly quotes = new Set<string>([WETH, NATIVE]);
   private scannedTo = 0;
@@ -145,7 +146,7 @@ export class ChainSource {
     private readonly agent: Agent,
     private readonly o: ChainOptions,
   ) {
-    this.rpc = new RpcClient(o.rpcUrl, { fetchImpl: o.fetchImpl, log: o.log, concurrency: 4 });
+    this.rpc = new RpcClient(o.rpcUrl, { fetchImpl: o.fetchImpl, log: o.log, sleep: o.sleep, concurrency: 4 });
     this.gecko = new GeckoClient({ network: o.network, api: o.geckoApi, perMinute: o.geckoPerMinute, fetchImpl: o.fetchImpl, sleep: o.sleep, now: o.now, log: o.log });
     this.tokenInfo = new TokenInfoCache(this.rpc);
     this.prices = new QuotePrices(this.gecko, () => Math.floor(this.now() / 1000));
@@ -174,6 +175,7 @@ export class ChainSource {
       void this.loop('backfill', () => this.backfillStep(), () => !!this.state && this.state.backfillCursor > this.state.backfillFrom);
       void this.loop('slow', () => (this.slowLive.length ? this.labelQueued() : this.slowStep()), () => this.slowLive.length > 0 || (!!this.state && this.state.slowCursor > this.state.backfillFrom));
       void this.loop('holders', () => this.holdersBatch(), () => this.holderQueue.length > 0);
+      void this.loop('logos', () => this.logoBatch(), () => this.logoQueue.size > 0);
       const tick = async () => {
         try {
           await this.liveTick();
@@ -237,6 +239,9 @@ export class ChainSource {
       const launched = Date.parse(t.launchedAt);
       this.holderQueue.push({ token: t.mint.toLowerCase(), fromBlock: Math.max(0, this.blockFor(launched) - MINT_LOOKBACK), windowEnd: launched + WINDOW_MS, tries: 0 });
     }
+    // Logos are looked up again after a restart: the queue lives in memory.
+    for (const t of this.agent.tokens.values()) if (!t.logo) this.logoQueue.add(t.mint.toLowerCase());
+    this.stats.logosQueued = this.logoQueue.size;
     this.scannedTo = this.state.liveFrom;
   }
 
@@ -322,8 +327,6 @@ export class ChainSource {
     await this.scanCurveTrades(head, now);
     this.stats.liveStage = 'updating the watch list';
     await this.watch(now);
-    this.stats.liveStage = 'fetching logos';
-    await this.fetchLogos(false);
 
     this.stats.slowQueued = this.slowLive.length;
     this.stats.holdersQueued = this.holderQueue.length;
@@ -501,7 +504,7 @@ export class ChainSource {
     );
     this.stats.labelled++;
     this.holderQueue.push({ token: c.token, fromBlock: Math.max(0, c.curve ? c.firstBlock : c.firstBlock - MINT_LOOKBACK), windowEnd: launchedAt + WINDOW_MS, tries: 0 });
-    if (!logo && !prior?.logo) this.logoQueue.push(c.token);
+    if (!logo && !prior?.logo) this.logoQueue.add(c.token);
   }
   // #endregion
 
@@ -529,23 +532,31 @@ export class ChainSource {
     while (this.holderQueue.length) await this.holdersBatch();
   }
 
-  /** Real logos from GeckoTerminal for tokens DexScreener did not provide one for. */
-  private async fetchLogos(force: boolean) {
-    if (!this.logoQueue.length || (!force && this.gecko.backlogMs() > LOGO_MAX_BACKLOG_MS)) return;
-    const batch = this.logoQueue.splice(0, 30);
+  /** Real logos from GeckoTerminal, 30 tokens a call, for tokens DexScreener did not provide one for. */
+  private async fetchLogos() {
+    const batch = [...this.logoQueue].slice(0, 30);
+    batch.forEach((t) => this.logoQueue.delete(t));
     try {
       for (const meta of await this.gecko.tokens(batch)) {
         const t = this.agent.tokens.get(meta.address);
         if (t && !t.logo && meta.imageUrl) this.agent.upsert({ ...t, logo: meta.imageUrl }, false);
       }
-    } catch {
-      this.logoQueue.push(...batch); // try again on a quieter tick
+    } catch (err) {
+      batch.forEach((t) => this.logoQueue.add(t)); // looked up again next round
+      throw err;
+    } finally {
+      this.stats.logosQueued = this.logoQueue.size;
     }
+  }
+
+  private async logoBatch() {
+    await this.fetchLogos();
+    await this.wait(LOGO_BATCH_EVERY_MS);
   }
 
   /** Public for tests. */
   async drainLogos() {
-    while (this.logoQueue.length) await this.fetchLogos(true);
+    while (this.logoQueue.size) await this.fetchLogos();
   }
 
   /** Follow new Pons trades as blocks arrive, so young curves can show as "watching". Labels never use this scan. */
@@ -621,7 +632,7 @@ export class ChainSource {
       hue: hueOf(c.token),
       logo,
     });
-    if (!logo) this.logoQueue.push(c.token);
+    if (!logo) this.logoQueue.add(c.token);
   }
 
   private drop(token: string) {

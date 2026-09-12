@@ -1,7 +1,8 @@
 /**
- * Minimal JSON-RPC client for Robinhood Chain: bounded concurrency, retries
- * with backoff for rate limits and transient failures, and log queries that
- * split their block range only when the node says the result is too large.
+ * Minimal JSON-RPC client for Robinhood Chain. Requests share one pace that
+ * adapts to the node: every 429 slows everyone down and pauses briefly, and the
+ * pace creeps back up while calls succeed. Log queries split their block range
+ * only when the node says the result is too large.
  */
 export interface RpcLog {
   address: string;
@@ -22,9 +23,11 @@ export interface LogFilter {
 export interface RpcOptions {
   fetchImpl?: typeof fetch;
   concurrency?: number; // parallel requests to the node
+  perSecond?: number; // request ceiling; the actual pace adapts below it
   retries?: number; // attempts for rate limits and transient failures
   timeoutMs?: number;
   minSpan?: number; // smallest block range getLogs will split down to
+  sleep?: (ms: number) => Promise<void>;
   log?: (msg: string) => void;
 }
 
@@ -39,30 +42,42 @@ export class RpcError extends Error {
 }
 
 const hex = (n: number) => `0x${n.toString(16)}`;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const MIN_PER_SECOND = 1;
+const START_PER_SECOND = 5;
 
 export class RpcClient {
   /** Counters for /api/health: where the time goes when the node pushes back. */
-  readonly stats = { calls: 0, throttled: 0, timeouts: 0, retries: 0, splits: 0, active: 0, waiting: 0 };
+  readonly stats = { calls: 0, throttled: 0, timeouts: 0, retries: 0, splits: 0, active: 0, waiting: 0, perSecond: 0 };
   private active = 0;
   private readonly waiting: (() => void)[] = [];
   private nextId = 0;
   private readonly timestamps = new Map<number, number>();
+  private readonly ceiling: number;
+  private pace: number;
+  private nextAt = 0;
 
   constructor(
     readonly url: string,
     private readonly o: RpcOptions = {},
-  ) {}
+  ) {
+    this.ceiling = o.perSecond ?? 10;
+    this.pace = Math.min(this.ceiling, START_PER_SECOND);
+    this.stats.perSecond = this.pace;
+  }
+
+  private sleep(ms: number) {
+    return ms > 0 ? (this.o.sleep ?? ((t) => new Promise((resolve) => setTimeout(resolve, t))))(ms) : Promise.resolve();
+  }
 
   async call<T>(method: string, params: unknown[]): Promise<T> {
-    const retries = this.o.retries ?? 6;
+    const retries = this.o.retries ?? 8;
     for (let attempt = 0; ; attempt++) {
       try {
         return await this.withSlot(() => this.send<T>(method, params));
       } catch (err) {
         if (!(err instanceof RpcError) || !err.retryable || attempt >= retries) throw err;
         this.stats.retries++;
-        await sleep(Math.min(30_000, 1_000 * 2 ** attempt));
+        await this.sleep(Math.min(10_000, 500 * 2 ** attempt));
       }
     }
   }
@@ -117,7 +132,7 @@ export class RpcClient {
   }
 
   private async withSlot<T>(fn: () => Promise<T>): Promise<T> {
-    while (this.active >= (this.o.concurrency ?? 3)) {
+    while (this.active >= (this.o.concurrency ?? 4)) {
       this.stats.waiting = this.waiting.length + 1;
       await new Promise<void>((resolve) => this.waiting.push(resolve));
     }
@@ -133,7 +148,21 @@ export class RpcClient {
     }
   }
 
+  /** Waits for this request's turn at the shared pace. */
+  private async turn() {
+    const now = Date.now();
+    const at = Math.max(now, this.nextAt);
+    this.nextAt = at + 1000 / this.pace;
+    await this.sleep(at - now);
+  }
+
+  private setPace(pace: number) {
+    this.pace = Math.max(MIN_PER_SECOND, Math.min(this.ceiling, pace));
+    this.stats.perSecond = Math.round(this.pace * 10) / 10;
+  }
+
   private async send<T>(method: string, params: unknown[]): Promise<T> {
+    await this.turn();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.o.timeoutMs ?? 90_000);
     this.stats.calls++;
@@ -144,16 +173,25 @@ export class RpcClient {
         body: JSON.stringify({ jsonrpc: '2.0', id: ++this.nextId, method, params }),
         signal: controller.signal,
       });
-      if (res.status === 429) this.stats.throttled++;
-      if (res.status === 429 || res.status >= 500) throw new RpcError(`${method} → HTTP ${res.status}`, true);
+      if (res.status === 429) {
+        // Everyone slows down and pauses, instead of each request hammering on with its own backoff.
+        this.stats.throttled++;
+        this.setPace(this.pace * 0.7);
+        this.nextAt = Math.max(this.nextAt, Date.now() + 2_000);
+        throw new RpcError(`${method} → HTTP 429`, true);
+      }
+      if (res.status >= 500) throw new RpcError(`${method} → HTTP ${res.status}`, true);
       if (!res.ok) throw new RpcError(`${method} → HTTP ${res.status}`, false);
       const body = (await res.json()) as { result?: T; error?: { code: number; message: string } };
+      this.setPace(this.pace + 0.05);
       if (body.error) throw new RpcError(`${method}: ${body.error.message}`, false);
       return body.result as T;
     } catch (err) {
       if (err instanceof RpcError) throw err;
-      if (controller.signal.aborted) this.stats.timeouts++;
-      if (controller.signal.aborted) throw new RpcError(`${method}: timed out`, method !== 'eth_getLogs', true); // a slow log query is split instead
+      if (controller.signal.aborted) {
+        this.stats.timeouts++;
+        throw new RpcError(`${method}: timed out`, method !== 'eth_getLogs', true); // a slow log query is split instead
+      }
       throw new RpcError(`${method}: ${(err as Error).message}`, true); // network failure
     } finally {
       clearTimeout(timer);
