@@ -9,9 +9,9 @@ const media = () => window.matchMedia('(prefers-color-scheme: dark)');
 function readPref(): ThemePref {
   try {
     const v = localStorage.getItem(KEY);
-    return v === 'light' || v === 'dark' ? v : 'system';
+    return v === 'dark' || v === 'system' ? v : 'light';
   } catch {
-    return 'system';
+    return 'light';
   }
 }
 
@@ -20,7 +20,7 @@ export function applyTheme(pref: ThemePref = readPref()) {
   document.documentElement.classList.toggle('dark', dark);
 }
 
-/** Light / dark / follow-the-system, remembered per browser. index.html applies it before first paint. */
+/** Light (default) / dark / follow-the-system, remembered per browser. layout.tsx applies it before first paint. */
 export function useTheme() {
   const pref = useSyncExternalStore(
     (cb) => {
@@ -28,7 +28,7 @@ export function useTheme() {
       return () => listeners.delete(cb);
     },
     readPref,
-    () => 'system' as ThemePref,
+    () => 'light' as ThemePref,
   );
 
   const setPref = useCallback((next: ThemePref) => {

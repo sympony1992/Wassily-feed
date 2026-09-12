@@ -82,6 +82,7 @@ const QUOTE_MIN_POOLS = 8; // a token paired in this many launches of one step i
 const OLDER_TOKEN_MS = 6 * HOUR; // pairs older than the launch by this much mean an existing token found a new pool
 const RETRAIN_AT = [20, 200, 1000, 2000]; // labelled counts that trigger an early retrain
 const SLOW_LIVE_BATCH = 10;
+const MATURED_PER_TICK = 400; // after a restart the backlog is labelled in slices, so every tick finishes and saves its place
 const HOLDERS_PARALLEL = 3;
 const LOGO_MAX_BACKLOG_MS = 10_000; // logos only decorate the feed: fetch them when GeckoTerminal is idle
 const WATCH_SCAN_MAX_BLOCKS = 5_000;
@@ -302,7 +303,7 @@ export class ChainSource {
     }
 
     const now = this.now();
-    const matured = [...this.young.values()].filter((c) => c.launchedAt + WINDOW_MS <= now);
+    const matured = [...this.young.values()].filter((c) => c.launchedAt + WINDOW_MS <= now).slice(0, MATURED_PER_TICK);
     if (matured.length) {
       await this.resolvePons(matured.filter((c) => c.curve), true);
       this.slowLive.push(...matured.filter((c) => !c.curve));
@@ -391,7 +392,7 @@ export class ChainSource {
       if (this.stopped) return;
       this.stats.checked++;
       const peak = peaks.get(c.token);
-      const info = await this.tokenInfo.get(c.token);
+      const info = peak?.trades ? await this.tokenInfo.get(c.token) : null; // an untraded curve costs no further calls
       if (!peak?.trades || !info) {
         this.stats.neverTraded++;
         this.drop(c.token);
@@ -405,7 +406,7 @@ export class ChainSource {
           if (high != null) cap = Math.max(cap, high * info.supply);
         }
       }
-      this.finish(c, c.launchedAt, cap, info.name, info.symbol, undefined, announce);
+      await this.finish(c, c.launchedAt, cap, undefined, undefined, undefined, announce);
     }
   }
 
@@ -450,25 +451,26 @@ export class ChainSource {
       }
       const pair = listed.find((p) => p.baseToken?.name);
       const logo = dexImageUrl(listed.find((p) => p.info?.imageUrl)?.info?.imageUrl);
-      this.finish(c, launchedAt, peak * info.supply, info.name || pair?.baseToken?.name, info.symbol || pair?.baseToken?.symbol, logo, announce);
+      await this.finish(c, launchedAt, peak * info.supply, pair?.baseToken?.name, pair?.baseToken?.symbol, logo, announce);
     }
   }
 
   /** The label: under the entry line leaves the study, $30K or more passed, otherwise stalled. */
-  private finish(c: Candidate, launchedAt: number, cap: number, name: string | undefined, symbol: string | undefined, logo: string | undefined, announce: boolean) {
+  private async finish(c: Candidate, launchedAt: number, cap: number, fallbackName: string | undefined, fallbackSymbol: string | undefined, logo: string | undefined, announce: boolean) {
     if (!(cap >= SITE.entryMc)) {
       this.stats.belowEntry++;
       this.rejected.add(c.token);
       this.drop(c.token);
       return;
     }
+    const label = await this.tokenInfo.label(c.token).catch(() => null); // names only for labelled tokens
     const at = new Date(launchedAt);
     const prior = this.agent.tokens.get(c.token);
     this.agent.upsert(
       {
         mint: c.token,
-        name: name || prior?.name || c.token.slice(0, 10),
-        symbol: symbol || prior?.symbol || 'TKN',
+        name: label?.name || fallbackName || prior?.name || c.token.slice(0, 10),
+        symbol: label?.symbol || fallbackSymbol || prior?.symbol || 'TKN',
         lore: prior?.lore ?? '',
         loreRaw: '', // lore cannot be observed for past launches, so no token trains on it
         loreWithheld: false,
@@ -562,8 +564,8 @@ export class ChainSource {
       if (existing) {
         if (existing.status === 'pending' && c.peakCap > existing.peakMc) this.agent.upsert({ ...existing, peakMc: Math.round(c.peakCap) }, false);
       } else if (c.peakCap >= SITE.entryMc) {
-        const info = await this.tokenInfo.get(c.token);
-        this.showPending(c, c.peakCap, info?.name, info?.symbol, undefined);
+        const label = await this.tokenInfo.label(c.token).catch(() => null);
+        this.showPending(c, c.peakCap, label?.name, label?.symbol, undefined);
       }
     }
 

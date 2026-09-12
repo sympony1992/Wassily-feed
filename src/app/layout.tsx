@@ -19,7 +19,7 @@ export const viewport: Viewport = {
 };
 
 // Apply the saved theme before first paint so there is no light/dark flash.
-const themeScript = `(function(){try{var t=localStorage.getItem('survival-agent:theme');var d=t==='dark'||(t!=='light'&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d)}catch(e){}})();`;
+const themeScript = `(function(){try{var t=localStorage.getItem('survival-agent:theme');var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d)}catch(e){}})();`;
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
