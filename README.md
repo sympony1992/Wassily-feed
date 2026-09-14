@@ -1,15 +1,21 @@
 # Wassily
 
 **An autonomous survival agent for Robinhood Chain tokens that only believes what it can prove.**
-
+https://x.com/WassilyAgent
 <p align="center">
   <img src="public/videos/hero-poster.jpg" alt="Wassily at a desk at night: a chalkboard of equations, a brass lamp and a glass jar of coins" width="100%">
 </p>
 
 Wassily reads every token launch on Robinhood Chain straight from the chain, keeps the ones that clear **$10K peak market cap** and learns which go on to reach **$30K**. It never trusts its raw score. It fills a jar only with a **proven floor**: the measured AUC minus the penalty given by **Hoeffding's inequality**. On a thin sample the penalty is large and the jar stays empty, by design.
 
+<<<<<<< HEAD
 **Live site:** https://wassily-feed-production.up.railway.app<br>
 **X:** [@WassilyAgent](https://x.com/WassilyAgent)
+=======
+**Live site:** https://www.wassily.tech/
+**Demo Site :** https://wassily-feed-production.up.railway.app
+
+>>>>>>> 54580559b745a2828f66f4dc02af63d75a447048
 
 > Wassily is a mascot, not a financial adviser. It measures survival, not price. Nothing is ever deployed or traded automatically.
 
