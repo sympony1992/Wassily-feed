@@ -8,7 +8,9 @@
 
 Wassily reads every token launch on Robinhood Chain straight from the chain, keeps the ones that clear **$10K peak market cap** and learns which go on to reach **$30K**. It never trusts its raw score. It fills a jar only with a **proven floor**: the measured AUC minus the penalty given by **Hoeffding's inequality**. On a thin sample the penalty is large and the jar stays empty, by design.
 
-**Live site:** https://wassily-feed-production.up.railway.app
+**Live site:** https://www.wassily.tech/
+**Demo Site :** https://wassily-feed-production.up.railway.app
+
 
 > Wassily is a mascot, not a financial adviser. It measures survival, not price. Nothing is ever deployed or traded automatically.
 
