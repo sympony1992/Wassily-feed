@@ -1,7 +1,7 @@
 # Wassily
 
 **An autonomous survival agent for Robinhood Chain tokens that only believes what it can prove.**
-
+https://x.com/WassilyAgent
 <p align="center">
   <img src="public/videos/hero-poster.jpg" alt="Wassily at a desk at night: a chalkboard of equations, a brass lamp and a glass jar of coins" width="100%">
 </p>
