@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { SITE } from '@/config/site';
+import { SITE, fmtUsdK } from '@/config/site';
 import { useLiveProof } from '@/hooks/useProof';
 import { cn } from '@/lib/cn';
 import { fmtInt } from '@/lib/format';
@@ -155,6 +155,18 @@ export function JarCard() {
             </>
           ) : (
             <WarmingUp />
+          )}
+
+          {enough && proof && (
+            <p className="mt-4 rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-xs text-pretty text-muted">
+              {proof.unlocked
+                ? `100% means the model has proven, with ${Math.round((1 - SITE.delta) * 100)}% confidence, that it picks which ${fmtUsdK(SITE.entryMc)} tokens go on to reach ${fmtUsdK(SITE.targetMc)} clearly better than a coin flip (AUC of at least ${SITE.aucTarget.toFixed(2)}).`
+                : `The jar measures proof, not price: how close the model is to proving, with ${Math.round((1 - SITE.delta) * 100)}% confidence, that it picks which ${fmtUsdK(SITE.entryMc)} tokens go on to reach ${fmtUsdK(SITE.targetMc)} clearly better than a coin flip.`}{' '}
+              <b className="font-medium text-fg">It is not a price prediction or a promise about any token, including {persona.mascot}&apos;s own.</b>{' '}
+              <a href="/about#check" className="font-medium text-accent hover:underline">
+                Check it yourself
+              </a>
+            </p>
           )}
 
           <a href="#proof" className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline">

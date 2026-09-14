@@ -7,9 +7,8 @@ export const SITE = {
   chain: 'Robinhood Chain',
   dexscreenerChain: 'robinhood',
   contractAddress: clean(process.env.NEXT_PUBLIC_CONTRACT_ADDRESS),
-  githubUrl: clean(process.env.NEXT_PUBLIC_GITHUB_URL),
-  xUrl: clean(process.env.NEXT_PUBLIC_X_URL),
-  defaultPersona: clean(process.env.NEXT_PUBLIC_DEFAULT_PERSONA, 'hoeffding'),
+  githubUrl: clean(process.env.NEXT_PUBLIC_GITHUB_URL, 'https://github.com/sympony1992/Wassily-feed'),
+  xUrl: clean(process.env.NEXT_PUBLIC_X_URL, 'https://x.com/WassilyAgent'),  defaultPersona: clean(process.env.NEXT_PUBLIC_DEFAULT_PERSONA, 'hoeffding'),
   defaultBound: clean(process.env.NEXT_PUBLIC_DEFAULT_BOUND),
   // Hero media panel: your own video in public/ (falls back to the illustration if missing).
   heroVideo: clean(process.env.NEXT_PUBLIC_HERO_VIDEO, '/videos/hero.mp4'),

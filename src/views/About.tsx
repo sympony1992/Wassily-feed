@@ -83,7 +83,7 @@ export function AboutView() {
           </div>
         </Card>
 
-        <Card>
+        <Card id="check" className="scroll-mt-20">
           <CardHeader
             title="5. Check the work"
             description={

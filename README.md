@@ -8,7 +8,8 @@
 
 Wassily reads every token launch on Robinhood Chain straight from the chain, keeps the ones that clear **$10K peak market cap** and learns which go on to reach **$30K**. It never trusts its raw score. It fills a jar only with a **proven floor**: the measured AUC minus the penalty given by **Hoeffding's inequality**. On a thin sample the penalty is large and the jar stays empty, by design.
 
-**Live site:** https://wassily-feed-production.up.railway.app
+**Live site:** https://wassily-feed-production.up.railway.app<br>
+**X:** [@WassilyAgent](https://x.com/WassilyAgent)
 
 > Wassily is a mascot, not a financial adviser. It measures survival, not price. Nothing is ever deployed or traded automatically.
 
@@ -232,7 +233,7 @@ All routes are read-only and same-origin.
 npm install
 npm run dev          # simulated market                  → http://localhost:3000
 npm run dev:live     # real Robinhood Chain launches, read on-chain
-npm test             # 40 tests: math, calibration, engine, route handlers, SSE, chain ingest
+npm test             # 61 tests: math, calibration, engine, route handlers, SSE, chain ingest
 npm run build        # tsc --noEmit + next build
 npm start            # production server (npm run start:live for real data)
 ```
@@ -246,7 +247,8 @@ It runs as **one Next.js application**: the pages, the API and the ingest loop a
 See `.env.example`.
 
 - **Public values (`NEXT_PUBLIC_*`)** are baked in at build time:
-  - `NEXT_PUBLIC_CONTRACT_ADDRESS`, `NEXT_PUBLIC_GITHUB_URL`, `NEXT_PUBLIC_X_URL`;
+  - `NEXT_PUBLIC_CONTRACT_ADDRESS` (blank hides the copy-address button);
+  - `NEXT_PUBLIC_X_URL` (defaults to [@WassilyAgent](https://x.com/WassilyAgent)) and `NEXT_PUBLIC_GITHUB_URL`, which drive the sidebar icons and the `/x`, `/twitter` and `/github` redirects;
   - `NEXT_PUBLIC_DEFAULT_PERSONA=hoeffding` (Wassily);
   - `NEXT_PUBLIC_HERO_VIDEO` and `NEXT_PUBLIC_HERO_POSTER`, which default to the files in `public/videos/`.
 - **Server values** are read at runtime:
@@ -274,7 +276,7 @@ The ingest loop lives in memory, so run **exactly one instance** with a **persis
 
 ```
 src/
-  app/          layout, providers, pages, api/* route handlers, github|x|twitter redirects
+  app/          layout, providers, pages, api/* route handlers, x|twitter|github redirects
   views/        client views for each page
   components/   shell/ overview/ analytics/ ideas/ lab/ layout/ ui/
   client/       live.ts: /api/state snapshot + /api/stream SSE into the store
