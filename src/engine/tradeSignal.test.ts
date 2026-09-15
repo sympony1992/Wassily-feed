@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FEATURE_NAMES } from './features';
-import { scoreToken, tradeSignal } from './tradeSignal';
+import { needsMarketCheck, scoreToken, tradeSignal, type MarketCheck } from './tradeSignal';
 import type { ScoringModel, Token } from './types';
 
 const HOUR = 3_600_000;
@@ -14,6 +14,7 @@ const model: ScoringModel = {
   mu: new Array(d).fill(0),
   sigma: new Array(d).fill(1),
 };
+const market: MarketCheck = { ok: true, reason: null, roundTrip: -0.047, checkedAt: NOW };
 
 const token = (over: Partial<Token> = {}): Token => ({
   mint: '0x1000000000000000000000000000000000000001',
@@ -35,25 +36,41 @@ const token = (over: Partial<Token> = {}): Token => ({
 });
 
 describe('Trade signal', () => {
-  it('is active for a watched token between entry and target, scored at or above the minimum, while the jar is full', () => {
-    const s = tradeSignal(token(), model, true, NOW);
+  it('is active for a watched token between entry and target, scored at or above the minimum, with a real market, while the jar is full', () => {
+    const s = tradeSignal(token(), model, true, NOW, { copies: 0, market });
     expect(s.score).toBeCloseTo(1 / (1 + Math.exp(-(-2 + Math.log1p(20)))), 10);
-    expect(s).toMatchObject({ state: 'active', blockedBy: null });
+    expect(s).toMatchObject({ state: 'active', blockedBy: null, market });
     expect(s.ageHours).toBeCloseTo(3, 5);
   });
 
   it('keeps the button but disables it while the jar is not full', () => {
-    expect(tradeSignal(token(), model, false, NOW)).toMatchObject({ state: 'disabled', blockedBy: 'jar' });
+    expect(tradeSignal(token(), model, false, NOW, { market })).toMatchObject({ state: 'disabled', blockedBy: 'jar' });
   });
 
   it('shows no button when any token gate fails, naming the first one', () => {
-    expect(tradeSignal(token({ status: 'stalled' }), model, true, NOW)).toMatchObject({ state: 'none', blockedBy: 'watching' });
-    expect(tradeSignal(token({ launchedAt: new Date(NOW - 0.5 * HOUR).toISOString() }), model, true, NOW)).toMatchObject({ state: 'none', blockedBy: 'age' });
-    expect(tradeSignal(token({ launchedAt: new Date(NOW - 49 * HOUR).toISOString() }), model, true, NOW)).toMatchObject({ state: 'none', blockedBy: 'age' });
-    expect(tradeSignal(token({ peakMc: 9_000 }), model, true, NOW)).toMatchObject({ state: 'none', blockedBy: 'entry' });
-    expect(tradeSignal(token({ peakMc: 30_000 }), model, true, NOW)).toMatchObject({ state: 'none', blockedBy: 'below_target' }); // its answer is already in
-    expect(tradeSignal(token({ holdersMissing: true }), model, true, NOW)).toMatchObject({ state: 'none', blockedBy: 'holders', score: null });
-    expect(tradeSignal(token({ holders: 2 }), model, true, NOW)).toMatchObject({ state: 'none', blockedBy: 'score' });
+    const ctx = { copies: 0, market };
+    expect(tradeSignal(token({ status: 'stalled' }), model, true, NOW, ctx)).toMatchObject({ state: 'none', blockedBy: 'watching' });
+    expect(tradeSignal(token({ launchedAt: new Date(NOW - 0.5 * HOUR).toISOString() }), model, true, NOW, ctx)).toMatchObject({ state: 'none', blockedBy: 'age' });
+    expect(tradeSignal(token({ launchedAt: new Date(NOW - 49 * HOUR).toISOString() }), model, true, NOW, ctx)).toMatchObject({ state: 'none', blockedBy: 'age' });
+    expect(tradeSignal(token({ peakMc: 9_000 }), model, true, NOW, ctx)).toMatchObject({ state: 'none', blockedBy: 'entry' });
+    expect(tradeSignal(token({ peakMc: 30_000 }), model, true, NOW, ctx)).toMatchObject({ state: 'none', blockedBy: 'below_target' }); // its answer is already in
+    expect(tradeSignal(token({ holdersMissing: true }), model, true, NOW, ctx)).toMatchObject({ state: 'none', blockedBy: 'holders', score: null });
+    expect(tradeSignal(token({ holders: 2 }), model, true, NOW, ctx)).toMatchObject({ state: 'none', blockedBy: 'score' });
+  });
+
+  it('refuses copies of famous tickers and symbols another watched token already uses', () => {
+    expect(tradeSignal(token({ symbol: 'BTC', name: 'Bitcone' }), model, true, NOW, { market })).toMatchObject({ state: 'none', blockedBy: 'name' });
+    expect(tradeSignal(token({ symbol: 'WAGMI', name: 'Solana Cat' }), model, true, NOW, { market })).toMatchObject({ state: 'none', blockedBy: 'name' });
+    expect(tradeSignal(token({ symbol: 'SCRIBE' }), model, true, NOW, { copies: 2, market })).toMatchObject({ state: 'none', blockedBy: 'copycat' });
+  });
+
+  it('shows no button until a real market is confirmed, and none when the check failed', () => {
+    const unchecked = tradeSignal(token(), model, true, NOW, {});
+    expect(unchecked).toMatchObject({ state: 'none', blockedBy: 'market', market: null });
+    expect(needsMarketCheck(unchecked)).toBe(true);
+    const noRoute: MarketCheck = { ok: false, reason: 'no_route', roundTrip: null, checkedAt: NOW };
+    expect(tradeSignal(token(), model, true, NOW, { market: noRoute })).toMatchObject({ state: 'none', blockedBy: 'market' });
+    expect(needsMarketCheck(tradeSignal(token({ holders: 2 }), model, true, NOW, {}))).toBe(false); // a low score is not worth asking the router about
   });
 
   it('never scores without the real model or the real holder count', () => {

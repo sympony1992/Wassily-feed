@@ -77,6 +77,7 @@ export function getRuntime(overrides: Partial<ServerConfig> = {}): Runtime {
   const paper =
     config.source === 'chain' && config.paperTrading ? new PaperTrader(trade, kyber, { file: store ? path.join(config.dataDir, 'paper.json') : null, log }) : null;
   paper?.start();
+  trade.startMarketChecks(); // live only: a buy button needs a market that can be bought and sold back
 
   const save = () => store?.save(agent.snapshot());
   const saveTimer = store ? setInterval(save, 30_000) : null;

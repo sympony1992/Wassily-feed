@@ -15,7 +15,14 @@ export function GET() {
   const reason = rt.trade.disabledReason();
   return json({
     quick_buy: { enabled: !reason, reason, jar_unlocked: rt.trade.jarUnlocked() },
-    counts: { watching: rows.length, active: count('active'), locked: count('disabled'), scored: rows.filter((r) => r.signal.score != null).length },
+    counts: {
+      watching: rows.length,
+      active: count('active'),
+      locked: count('disabled'),
+      scored: rows.filter((r) => r.signal.score != null).length,
+      no_market: rows.filter((r) => r.signal.blockedBy === 'market').length,
+    },
+    market_checks: rt.trade.marketStats,
     signals: shown.slice(0, 200).map((r) => signalJson(r, rt.config.chain)),
   });
 }

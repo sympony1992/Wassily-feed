@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { fetchSignals, type SignalJson, type SignalsResponse } from '@/client/trade';
 import { BOT_DRAFT } from '@/config/bot';
 import { SITE, fmtUsdK } from '@/config/site';
-import { GATE_LABELS, SIGNAL_GATES, type SignalGate } from '@/engine/tradeSignal';
+import { GATE_LABELS, MAX_ROUND_TRIP_LOSS, SIGNAL_GATES } from '@/engine/tradeSignal';
 import { cn } from '@/lib/cn';
 import { fmtInt, fmtMC } from '@/lib/format';
 import { useTrade, type BusyKind } from '@/store/useTrade';
@@ -13,10 +13,37 @@ import { Badge, Button, Card, CardHeader } from '../ui/primitives';
 
 const BUSY_LABEL: Record<BusyKind, string> = { quote: 'Pricing…', confirm: 'Confirm…', approve: 'Approving…', wallet: 'In wallet…', pending: 'Pending…' };
 
+const roundTripText = (v: number | null | undefined) => (v == null ? '' : `${v > 0 ? '+' : ''}${(v * 100).toFixed(1)}%`);
+
+/** The first failing gate, in a few words. */
 function reason(s: SignalJson): string {
-  const g: SignalGate | null = s.blocked_by;
-  if (g === 'age') return s.age_hours < 1 ? 'under 1h old' : 'past 48h';
-  return { watching: 'labelled', entry: 'under $10K', below_target: 'past $30K', holders: 'holders pending', score: 'score too low', jar: 'jar not full' }[g ?? 'jar'] ?? '';
+  switch (s.blocked_by) {
+    case 'watching':
+      return 'labelled';
+    case 'age':
+      return s.age_hours < 1 ? 'under 1h old' : 'past 48h';
+    case 'entry':
+      return `under ${fmtUsdK(SITE.entryMc)}`;
+    case 'below_target':
+      return `past ${fmtUsdK(SITE.targetMc)}`;
+    case 'holders':
+      return 'holders pending';
+    case 'score':
+      return 'score too low';
+    case 'name':
+      return 'copies a famous ticker';
+    case 'copycat':
+      return 'copycat symbol';
+    case 'market':
+      if (!s.market) return 'checking market';
+      if (s.market.reason === 'no_route') return 'no market to buy';
+      if (s.market.reason === 'no_sale') return 'cannot be sold back';
+      return `round trip ${roundTripText(s.market.round_trip)}`;
+    case 'jar':
+      return 'jar not full';
+    default:
+      return '';
+  }
 }
 
 export function TokenMark({ src, symbol }: { src: string | null | undefined; symbol: string }) {
@@ -81,7 +108,16 @@ function Row({ s, enabled, onQuickBuy, amountUsd, busy }: { s: SignalJson; enabl
           </ul>
           <p className="mt-2 text-xs text-pretty text-subtle">
             Score {s.score == null ? 'not available until the holder count is in' : s.score.toFixed(4)}: the latest model&apos;s survival probability, computed on the server with this token&apos;s own
-            holder count. {s.state === 'active' ? 'Every gate passes.' : ''}
+            holder count.{' '}
+            {s.market
+              ? s.market.ok
+                ? `Market checked ${new Date(s.market.checked_at).toISOString().slice(11, 16)} UTC: a $10 test buy sold straight back returns ${roundTripText(s.market.round_trip)}.`
+                : s.market.reason === 'no_route'
+                  ? 'Market checked: the router has no way to buy this token.'
+                  : s.market.reason === 'no_sale'
+                    ? 'Market checked: a buy could not be sold back.'
+                    : `Market checked: a $10 test buy sold straight back returns ${roundTripText(s.market.round_trip)}, beyond the ${MAX_ROUND_TRIP_LOSS * 100}% limit.`
+              : ''}
           </p>
         </div>
       )}
@@ -149,7 +185,8 @@ export function SignalsCard({ onQuickBuy }: { onQuickBuy: (s: SignalJson) => voi
       </ul>
       <p className="border-t border-border px-4 py-2.5 text-xs text-pretty text-subtle">
         A button appears only when every gate passes: watched and not yet labelled, {SITE.holderSampleHours}–{SITE.labelHours}h old, a peak between {fmtUsdK(SITE.entryMc)} and{' '}
-        {fmtUsdK(SITE.targetMc)}, the holder count known, a score of at least {BOT_DRAFT.minScore.toFixed(2)}, and the jar at 100%.
+        {fmtUsdK(SITE.targetMc)}, the holder count known, a score of at least {BOT_DRAFT.minScore.toFixed(2)}, not a copied ticker or a symbol another watched token uses, a market that can be
+        bought and sold back within {MAX_ROUND_TRIP_LOSS * 100}% right now, and the jar at 100%.
       </p>
     </Card>
   );

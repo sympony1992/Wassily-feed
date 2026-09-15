@@ -17,6 +17,7 @@ export interface SignalJson {
   blocked_by: SignalGate | null;
   gates: Record<SignalGate, boolean>;
   age_hours: number;
+  market?: { ok: boolean; reason: 'no_route' | 'no_sale' | 'round_trip' | null; round_trip: number | null; checked_at: string } | null;
 }
 
 export interface SignalsResponse {

@@ -35,6 +35,9 @@ export const signalJson = (row: SignalRow, chain: string) => ({
   blocked_by: row.signal.blockedBy,
   gates: row.signal.gates,
   age_hours: Math.round(row.signal.ageHours * 10) / 10,
+  market: row.signal.market
+    ? { ok: row.signal.market.ok, reason: row.signal.market.reason, round_trip: row.signal.market.roundTrip == null ? null : r4(row.signal.market.roundTrip), checked_at: new Date(row.signal.market.checkedAt).toISOString() }
+    : null,
 });
 
 export function modelJson(run: ModelRun, bound: BoundDef) {

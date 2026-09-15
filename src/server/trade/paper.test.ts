@@ -11,7 +11,7 @@ const HOUR = 3_600_000;
 const MINT = '0x1000000000000000000000000000000000000001';
 
 const token = { mint: MINT, name: 'Patient Otter', symbol: 'POTR', lore: '', loreWithheld: false, holders: 20, peakMc: 15_000, status: 'pending', hour: 3, dow: 1, launchedAt: '2026-09-15T00:00:00.000Z', deployer: '', hue: 38 } as Token;
-const active: TradeSignal = { score: 0.72, gates: {} as TradeSignal['gates'], blockedBy: null, state: 'active', ageHours: 3 };
+const active: TradeSignal = { score: 0.72, gates: {} as TradeSignal['gates'], blockedBy: null, state: 'active', ageHours: 3, market: { ok: true, reason: null, roundTrip: -0.05, checkedAt: 0 } };
 
 /** Sell quotes answer from `values` in turn: a number is the USD a sale returns, null is no route, an Error is an outage. */
 function setup(values: (number | null | Error)[], file: string | null = null) {
