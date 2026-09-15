@@ -10,7 +10,7 @@ import { cn } from '@/lib/cn';
 import { useBound, usePersona, useStore } from '@/store/useStore';
 import { CopyAddress } from '../layout/CopyAddress';
 import { IconBot, IconClose, IconFlask, IconGitHub, IconGrid, IconInfo, IconMenu, IconSparkles, IconTerminal, IconUsers, IconX } from '../ui/Icons';
-import { Badge, StatusDot, buttonClass } from '../ui/primitives';
+import { StatusDot, buttonClass } from '../ui/primitives';
 import { ThemeToggle } from './ThemeToggle';
 
 const NAV = [
@@ -18,7 +18,7 @@ const NAV = [
   { href: '/console', label: 'Console', Icon: IconTerminal },
   { href: '/brain', label: 'Brain', Icon: IconSparkles },
   { href: '/lab', label: 'Formula Lab', Icon: IconFlask },
-  { href: '/bot', label: 'Trade Bot', Icon: IconBot, badge: 'Beta' },
+  { href: '/bot', label: 'Trade Bot', Icon: IconBot },
   { href: '/about', label: 'About', Icon: IconInfo },
 ];
 
@@ -56,7 +56,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       <Brand />
 
       <nav aria-label="Primary" className="flex flex-col gap-0.5">
-        {NAV.map(({ href, label, Icon, badge }) => {
+        {NAV.map(({ href, label, Icon }) => {
           const active = href === '/' ? pathname === '/' : pathname.startsWith(href);
           return (
             <Link
@@ -71,11 +71,6 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             >
               <Icon className="size-4" />
               {label}
-              {badge && (
-                <Badge tone="accent" className="ml-auto">
-                  {badge}
-                </Badge>
-              )}
             </Link>
           );
         })}

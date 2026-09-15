@@ -87,7 +87,6 @@ export function BotView() {
     <AppShell
       title="Trade Bot"
       description={`Buy the tokens ${persona.mascot} would buy, straight from the feed. ${persona.mascot} screens and scores; you decide, and your wallet signs.`}
-      meta={<Badge tone="accent">Beta</Badge>}
     >
       <div className="space-y-4">
         <div role="tablist" aria-label="Trade Bot" className="flex gap-1 border-b border-border">
