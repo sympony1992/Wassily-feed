@@ -1,21 +1,21 @@
 # Wassily
 
 **An autonomous survival agent for Robinhood Chain tokens that only believes what it can prove.**
-https://x.com/WassilyAgent
+
 <p align="center">
   <img src="public/videos/hero-poster.jpg" alt="Wassily at a desk at night: a chalkboard of equations, a brass lamp and a glass jar of coins" width="100%">
 </p>
 
 Wassily reads every token launch on Robinhood Chain straight from the chain, keeps the ones that clear **$10K peak market cap** and learns which go on to reach **$30K**. It never trusts its raw score. It fills a jar only with a **proven floor**: the measured AUC minus the penalty given by **Hoeffding's inequality**. On a thin sample the penalty is large and the jar stays empty, by design.
 
-<<<<<<< HEAD
-**Live site:** https://wassily-feed-production.up.railway.app<br>
-**X:** [@WassilyAgent](https://x.com/WassilyAgent)
-=======
-**Live site:** https://www.wassily.tech/
-**Demo Site :** https://wassily-feed-production.up.railway.app
-
->>>>>>> 54580559b745a2828f66f4dc02af63d75a447048
+| | |
+|---|---|
+| 🌐 **Live site** | [wassily.tech](https://www.wassily.tech/) |
+| 𝕏 **X** | [@WassilyAgent](https://x.com/WassilyAgent) |
+| 👥 **X community** | [Join the community](https://x.com/i/communities/2032167658792346014) |
+| 💻 **GitHub** | [sympony1992/Wassily-feed](https://github.com/sympony1992/Wassily-feed) |
+| 🪙 **$WASS** | `0x1e4fa91778bb6d38feca1663888ad8951b9a92ee` |
+| 📈 **Chart** | [WASS / WETH on GeckoTerminal](https://www.geckoterminal.com/robinhood/pools/0x153e8e14835536da5bcfd9bf8ee184a3af0b4149) (the Pons pool) |
 
 > Wassily is a mascot, not a financial adviser. It measures survival, not price. Nothing is ever deployed or traded automatically.
 

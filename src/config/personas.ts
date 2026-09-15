@@ -27,7 +27,7 @@ export const PERSONAS: Persona[] = [
   {
     id: 'hoeffding',
     mascot: 'Wassily',
-    ticker: '$WASSILY',
+    ticker: '$WASS', // the on-chain symbol of Wassily Agent
     role: 'Survival Agent',
     mathematician: 'Wassily Hoeffding',
     life: '1914–1991',

@@ -1,6 +1,6 @@
 /**
  * Minimal JSON-RPC client for Robinhood Chain. Requests share one pace that
- * adapts to the node: every 429 slows everyone down and pauses briefly, and the
+ * adapts to the node: every 429 (or 403 from its edge) slows everyone down and pauses briefly, and the
  * pace creeps back up while calls succeed. Log queries split their block range
  * only when the node says the result is too large.
  */
@@ -173,12 +173,14 @@ export class RpcClient {
         body: JSON.stringify({ jsonrpc: '2.0', id: ++this.nextId, method, params }),
         signal: controller.signal,
       });
-      if (res.status === 429) {
+      // The node's edge answers bursts with 403 as well as 429. Both mean "slow down": treated as a refusal,
+      // a 403 would split a log range over and over for nothing.
+      if (res.status === 429 || res.status === 403) {
         // Everyone slows down and pauses, instead of each request hammering on with its own backoff.
         this.stats.throttled++;
         this.setPace(this.pace * 0.7);
         this.nextAt = Math.max(this.nextAt, Date.now() + 2_000);
-        throw new RpcError(`${method} → HTTP 429`, true);
+        throw new RpcError(`${method} → HTTP ${res.status}`, true);
       }
       if (res.status >= 500) throw new RpcError(`${method} → HTTP ${res.status}`, true);
       if (!res.ok) throw new RpcError(`${method} → HTTP ${res.status}`, false);

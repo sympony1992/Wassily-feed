@@ -80,6 +80,22 @@ describe('RpcClient', () => {
     expect(ranges.slice(0, 2)).toEqual(['0-200', '0-200']); // after a 429 the same range is asked again
     expect(ranges).toEqual(expect.arrayContaining(['0-100', '101-200']));
   });
+
+  it('treats a 403 from the node edge like a rate limit, never as a range to split', async () => {
+    const { RpcClient } = await import('./rpc');
+    const ranges: string[] = [];
+    let forbidden = 2;
+    const fetchImpl = (async (_: unknown, init?: RequestInit) => {
+      const { fromBlock, toBlock } = JSON.parse(String(init?.body)).params[0];
+      ranges.push(`${Number(fromBlock)}-${Number(toBlock)}`);
+      if (forbidden-- > 0) return new Response('forbidden', { status: 403 });
+      return new Response(JSON.stringify({ result: [] }), { headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const rpc = new RpcClient('https://rpc.test', { fetchImpl, sleep: async () => {} });
+    await rpc.getLogs({ fromBlock: 0, toBlock: 200 });
+    expect(rpc.stats).toMatchObject({ throttled: 2, retries: 2, splits: 0 });
+    expect(ranges).toEqual(['0-200', '0-200', '0-200']); // the same range, asked again after each 403
+  });
 });
 
 describe('GeckoClient', () => {
