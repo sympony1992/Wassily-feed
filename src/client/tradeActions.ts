@@ -234,7 +234,7 @@ export async function sell(position: Position, percent: number) {
     let received = after - before + gasPaid(receipt);
     if (received <= 0n) received = BigInt(q.amount_out_wei); // another transaction moved the balance: fall back to the quote
     const ethOut = units(BigInt(q.amount_out_wei), 18);
-    const ethUsd = ethOut > 0 ? q.amount_out_usd / ethOut : 0;
+    const ethUsd = q.eth_usd ?? (ethOut > 0 ? q.amount_out_usd / ethOut : 0);
     const usd = units(received, 18) * ethUsd;
     store().addTrade({
       id: hash,

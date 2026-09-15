@@ -15,6 +15,7 @@ const TWIN_A = '0x5000000000000000000000000000000000000005'; // two watched toke
 const TWIN_B = '0x6000000000000000000000000000000000000006';
 const SLUR = '0x7000000000000000000000000000000000000007';
 const SENDER = '0x000000000000000000000000000000000000beef';
+const PROBE_WEI = 4_000_000_000_000_000; // $10 at $2,500 ETH
 
 const d = FEATURE_NAMES.length;
 const scoring: ScoringModel = { bias: -2, weights: FEATURE_NAMES.map((n) => (n === 'holders_log' ? 1 : 0)), mu: new Array(d).fill(0), sigma: new Array(d).fill(1) };
@@ -56,8 +57,8 @@ const token = (mint: string, over: Partial<Token> = {}): Token => ({
 });
 const summary = (over: Partial<RouteSummary> = {}): RouteSummary => ({
   tokenIn: NATIVE_ETH,
-  amountIn: '10000000000000000',
-  amountInUsd: '25',
+  amountIn: '10000000000000000', // $25 at $2,500 ETH
+  amountInUsd: '0', // KyberSwap's USD fields are never trusted
   tokenOut: HOT,
   amountOut: '1000',
   amountOutUsd: '0',
@@ -67,8 +68,8 @@ const summary = (over: Partial<RouteSummary> = {}): RouteSummary => ({
   ...over,
 });
 
-// USD a sale of the tokens bought returns, per token: what a $10 test buy is worth when sold straight back.
-const SALE_USD: Record<string, number | null> = { [HOT]: 9.5, [TRAP]: 0.02, [TWIN_A]: 9.5, [TWIN_B]: 9.5 };
+// ETH a sale of the test buy returns, as a share of the ETH spent.
+const SALE_SHARE: Record<string, number> = { [HOT]: 0.95, [TRAP]: 0.002, [TWIN_A]: 0.95, [TWIN_B]: 0.95 };
 
 function setup(o: { live?: boolean; enabled?: boolean; auc?: number } = {}) {
   const agent = new Agent('hoeffding', null, 3600);
@@ -87,11 +88,11 @@ function setup(o: { live?: boolean; enabled?: boolean; auc?: number } = {}) {
       quotes.push([tokenIn, tokenOut, amountIn]);
       if (tokenIn === NATIVE_ETH) {
         if (tokenOut === DEAD_POOL) return null;
-        return { summary: summary({ tokenIn, tokenOut, amountIn: amountIn.toString(), amountInUsd: String((Number(amountIn) / 1e18) * 2500) }), exchanges: ['pons-v2'] };
+        return { summary: summary({ tokenIn, tokenOut, amountIn: amountIn.toString() }), exchanges: ['pons-v2'] };
       }
-      const usd = SALE_USD[tokenIn];
-      if (usd == null) return null;
-      return { summary: summary({ tokenIn, tokenOut, amountIn: amountIn.toString(), amountInUsd: '0', amountOut: '1', amountOutUsd: String(usd) }), exchanges: ['pons-v2'] };
+      const share = SALE_SHARE[tokenIn];
+      if (share == null) return null;
+      return { summary: summary({ tokenIn, tokenOut, amountIn: amountIn.toString(), amountOut: String(Math.round(PROBE_WEI * share)) }), exchanges: ['pons-v2'] };
     },
     build: async (s: RouteSummary, sender: string, slippageBps: number) => {
       builds.push([s, sender, slippageBps]);
@@ -111,7 +112,7 @@ describe('Trade service', () => {
     await expect(trade.quoteBuy(HOT, 25)).rejects.toThrow('still being checked');
     await trade.refreshMarkets();
     expect(state(HOT)).toMatchObject({ state: 'active', market: { ok: true, reason: null } });
-    expect(state(HOT)!.market!.roundTrip).toBeCloseTo(-0.05, 10); // $10 in, $9.50 back
+    expect(state(HOT)!.market!.roundTrip).toBeCloseTo(-0.05, 10); // 0.95 of the ETH comes back, whatever the USD fields say
   });
 
   it('keeps tokens with no route, or a trap that cannot be sold back, without a button', async () => {
@@ -160,14 +161,14 @@ describe('Trade service', () => {
     await expect(setup({ enabled: false }).trade.quoteBuy(HOT, 25)).rejects.toThrow('switched off');
   });
 
-  it('builds only swaps that match the trade they claim to be', async () => {
+  it('builds only swaps that match the trade they claim to be, capping the stake from the ETH it sends', async () => {
     const { trade, builds } = setup();
     await trade.refreshMarkets();
     const swap = await trade.build('buy', HOT, summary(), SENDER, 500);
     expect(swap.value).toBe('10000000000000000');
     expect(builds[0][1]).toBe(SENDER);
     await expect(trade.build('buy', HOT, summary({ tokenOut: YOUNG }), SENDER, 500)).rejects.toThrow('does not match this buy');
-    await expect(trade.build('buy', HOT, summary({ amountInUsd: '80' }), SENDER, 500)).rejects.toThrow('may not exceed $50');
+    await expect(trade.build('buy', HOT, summary({ amountIn: '32000000000000000' }), SENDER, 500)).rejects.toThrow('may not exceed $50'); // $80 of ETH
     await expect(trade.build('buy', HOT, summary(), SENDER, 5000)).rejects.toThrow('Slippage');
     await expect(trade.build('buy', HOT, summary(), 'me', 500)).rejects.toThrow('wallet address');
     await expect(trade.build('sell', HOT, summary(), SENDER, 500)).rejects.toThrow('does not match this sale');

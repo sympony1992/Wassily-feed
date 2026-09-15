@@ -154,8 +154,9 @@ export class TradeService {
         } else {
           const sale = await this.o.kyber.quote(key, NATIVE_ETH, BigInt(buy.summary.amountOut));
           await this.gap();
-          const spent = Number(buy.summary.amountInUsd) || MARKET_PROBE_USD;
-          const roundTrip = sale ? Number(sale.summary.amountOutUsd) / spent - 1 : null;
+          // ETH back against ETH in: KyberSwap's own USD fields can be missing or zero, and a sale that returns no ETH is no sale.
+          const back = sale ? Number(BigInt(sale.summary.amountOut)) : 0;
+          const roundTrip = back > 0 ? back / Number(wei) - 1 : null;
           if (roundTrip == null) check = { ok: false, reason: 'no_sale', roundTrip: null, checkedAt: this.now() };
           else check = { ok: roundTrip >= -MAX_ROUND_TRIP_LOSS, reason: roundTrip >= -MAX_ROUND_TRIP_LOSS ? null : 'round_trip', roundTrip, checkedAt: this.now() };
         }
@@ -247,7 +248,14 @@ export class TradeService {
     if (side === 'buy') {
       this.assertBuyable(token);
       if (tokenIn !== NATIVE_ETH || tokenOut !== token) throw new TradeRefused('The quote does not match this buy.');
-      const usd = Number(summary.amountInUsd);
+      let wei: bigint;
+      try {
+        wei = BigInt(String(summary.amountIn));
+      } catch {
+        throw new TradeRefused('The quote does not match this buy.');
+      }
+      // Sized from the ETH the swap sends at the server's ETH price: KyberSwap's USD field can be missing or zero.
+      const usd = (Number(wei) / 1e18) * (await this.ethUsd());
       if (!(usd > 0) || usd > QUICK_BUY.maxUsd * 1.05) throw new TradeRefused(`A quick buy may not exceed $${QUICK_BUY.maxUsd}.`);
     } else {
       if (!this.o.live) throw new TradeRefused(this.disabledReason()!, 403); // switched off or not, a live server always lets a user sell

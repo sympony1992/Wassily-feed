@@ -77,6 +77,7 @@ export interface SellQuote {
   exchanges?: string[];
   amount_out_wei: string;
   amount_out_usd: number;
+  eth_usd?: number;
   gas_usd?: number;
 }
 

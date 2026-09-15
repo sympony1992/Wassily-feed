@@ -19,6 +19,7 @@ export interface PaperPosition {
   valueUsd: number; // what selling every token would return, at the last quote
   checkedAt: string;
   missedQuotes: number;
+  breaches?: number; // checks in a row past the take profit or the stop loss
   closedAt?: string;
   exit?: PaperExit;
 }
@@ -40,6 +41,7 @@ const TICK_MS = 2 * 60_000;
 const QUOTE_GAP_MS = 400; // KyberSwap is shared with every visitor's quick buy
 const MAX_OPEN = 60;
 const MISSED_QUOTES_TO_CLOSE = 3; // no route three checks running: the market is gone
+const EXIT_CONFIRMATIONS = 2; // one odd quote never closes a position
 
 /**
  * Paper trading: every token the moment it becomes an active signal is bought on paper for a fixed stake at a real
@@ -47,7 +49,7 @@ const MISSED_QUOTES_TO_CLOSE = 3; // no route three checks running: the market i
  * whether the signals would have made money, before anyone trusts them with their own.
  */
 export class PaperTrader {
-  readonly stats = { ticks: 0, opened: 0, closed: 0, errors: 0, lastError: '', lastTickAt: '' };
+  readonly stats = { ticks: 0, opened: 0, closed: 0, errors: 0, reopened: 0, lastError: '', lastTickAt: '' };
   private positions: PaperPosition[] = [];
   private timer: NodeJS.Timeout | null = null;
   private stopped = false;
@@ -57,7 +59,7 @@ export class PaperTrader {
     private readonly kyber: Pick<KyberClient, 'quote'>,
     private readonly o: PaperOptions,
   ) {
-    this.positions = this.load();
+    this.positions = this.repair(this.load());
   }
 
   private now() {
@@ -100,7 +102,7 @@ export class PaperTrader {
         const wei = BigInt(Math.floor((QUICK_BUY.paperStakeUsd / ethUsd) * 1e18));
         const quote = await this.kyber.quote(NATIVE_ETH, token.mint.toLowerCase(), wei);
         await this.gap();
-        if (!quote) continue; // no market to buy into: nothing to record
+        if (!quote || BigInt(quote.summary.amountOut) <= 0n) continue; // no market to buy into: nothing to record
         const position: PaperPosition = {
           mint: token.mint.toLowerCase(),
           name: token.name,
@@ -115,6 +117,7 @@ export class PaperTrader {
           valueUsd: QUICK_BUY.paperStakeUsd,
           checkedAt: new Date(now).toISOString(),
           missedQuotes: 0,
+          breaches: 0,
         };
         this.positions.push(position);
         open.push(position);
@@ -125,20 +128,32 @@ export class PaperTrader {
       }
     }
 
-    for (const p of open) {
+    let ethUsd = 0;
+    if (open.length) {
+      try {
+        ethUsd = await this.trade.ethUsd();
+      } catch (err) {
+        this.fail(err); // without an ETH price nothing is valued this tick, and nothing is closed for it
+      }
+    }
+    for (const p of ethUsd > 0 ? open : []) {
       try {
         const quote = await this.kyber.quote(p.mint, NATIVE_ETH, BigInt(p.tokens));
         await this.gap();
         p.checkedAt = new Date(now).toISOString();
-        if (!quote) {
+        // Valued by the ETH the sale returns at our own ETH price: KyberSwap's USD field can be missing or zero, and a
+        // zero output is a broken quote, not a worthless token.
+        const ethOut = quote ? Number(BigInt(quote.summary.amountOut)) / 1e18 : 0;
+        if (!(ethOut > 0)) {
           if (++p.missedQuotes >= MISSED_QUOTES_TO_CLOSE) this.close(p, 'no_route', 0, now);
           continue;
         }
         p.missedQuotes = 0;
-        p.valueUsd = Number(quote.summary.amountOutUsd) || 0;
+        p.valueUsd = ethOut * ethUsd;
         const ret = p.valueUsd / p.stakeUsd - 1;
-        if (ret >= QUICK_BUY.takeProfitPct) this.close(p, 'take_profit', p.valueUsd, now);
-        else if (ret <= -QUICK_BUY.stopLossPct) this.close(p, 'stop_loss', p.valueUsd, now);
+        const breach: PaperExit | null = ret >= QUICK_BUY.takeProfitPct ? 'take_profit' : ret <= -QUICK_BUY.stopLossPct ? 'stop_loss' : null;
+        p.breaches = breach ? (p.breaches ?? 0) + 1 : 0;
+        if (breach && p.breaches >= EXIT_CONFIRMATIONS) this.close(p, breach, p.valueUsd, now);
         else if (now - Date.parse(p.openedAt) >= QUICK_BUY.timeStopHours * HOUR) this.close(p, 'time_stop', p.valueUsd, now);
       } catch (err) {
         this.fail(err); // an outage is not a missing market: the position waits for the next check
@@ -181,6 +196,25 @@ export class PaperTrader {
     p.exit = exit;
     p.closedAt = new Date(now).toISOString();
     this.stats.closed++;
+  }
+
+  /**
+   * A stop loss at exactly $0 could only come from a quote that priced a still-trading sale at nothing (an early version
+   * trusted KyberSwap's USD field). Those positions are reopened and valued again on the next tick; real zeros close as
+   * "no route", and near-zero trap sales keep their result.
+   */
+  private repair(list: PaperPosition[]): PaperPosition[] {
+    for (const p of list) {
+      if (p.exit !== 'stop_loss' || p.valueUsd !== 0) continue;
+      delete p.exit;
+      delete p.closedAt;
+      p.valueUsd = p.stakeUsd;
+      p.missedQuotes = 0;
+      p.breaches = 0;
+      this.stats.reopened++;
+    }
+    if (this.stats.reopened) this.o.log?.(`paper: reopened ${this.stats.reopened} positions a zero-value quote had closed`);
+    return list;
   }
 
   private gap() {
