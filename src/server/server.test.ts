@@ -12,6 +12,7 @@ import * as methodologyRoute from '@/app/api/methodology.json/route';
 import * as stateRoute from '@/app/api/state/route';
 import * as streamRoute from '@/app/api/stream/route';
 import * as githubRoute from '@/app/github/route';
+import * as communityRoute from '@/app/community/route';
 import { PERSONA_BY_ID } from '@/config/personas';
 import { SITE } from '@/config/site';
 import { sha256Fields, sha256Hex } from '@/math/sha256';
@@ -107,6 +108,12 @@ describe('Next.js route handlers (simulated source)', () => {
     const res = githubRoute.GET(req('/github'));
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toBe(SITE.githubUrl || 'http://localhost/');
+  });
+
+  it('redirects /community to the configured X community', () => {
+    const res = communityRoute.GET(req('/community'));
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe(SITE.xCommunityUrl || 'http://localhost/');
   });
 });
 

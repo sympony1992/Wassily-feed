@@ -6,9 +6,11 @@ const clean = (v: string | undefined, fallback = '') => v?.trim() || fallback;
 export const SITE = {
   chain: 'Robinhood Chain',
   dexscreenerChain: 'robinhood',
-  contractAddress: clean(process.env.NEXT_PUBLIC_CONTRACT_ADDRESS),
+  contractAddress: clean(process.env.NEXT_PUBLIC_CONTRACT_ADDRESS, '0x1e4fa91778bb6d38feca1663888ad8951b9a92ee'),
   githubUrl: clean(process.env.NEXT_PUBLIC_GITHUB_URL, 'https://github.com/sympony1992/Wassily-feed'),
-  xUrl: clean(process.env.NEXT_PUBLIC_X_URL, 'https://x.com/WassilyAgent'),  defaultPersona: clean(process.env.NEXT_PUBLIC_DEFAULT_PERSONA, 'hoeffding'),
+  xUrl: clean(process.env.NEXT_PUBLIC_X_URL, 'https://x.com/WassilyAgent'),
+  xCommunityUrl: clean(process.env.NEXT_PUBLIC_X_COMMUNITY_URL, 'https://x.com/i/communities/2032167658792346014'),
+  defaultPersona: clean(process.env.NEXT_PUBLIC_DEFAULT_PERSONA, 'hoeffding'),
   defaultBound: clean(process.env.NEXT_PUBLIC_DEFAULT_BOUND),
   // Hero media panel: your own video in public/ (falls back to the illustration if missing).
   heroVideo: clean(process.env.NEXT_PUBLIC_HERO_VIDEO, '/videos/hero.mp4'),
