@@ -11,7 +11,6 @@ import { QuickBuySettings } from '@/components/trade/QuickBuySettings';
 import { SignalsCard } from '@/components/trade/SignalsCard';
 import { TradeToasts } from '@/components/trade/TradeToasts';
 import { WalletControl } from '@/components/trade/WalletControl';
-import { IconBot } from '@/components/ui/Icons';
 import { Badge, Button, Card, CardHeader, StatusDot } from '@/components/ui/primitives';
 import { quickBuy, restoreSession } from '@/client/tradeActions';
 import type { SignalJson } from '@/client/trade';
@@ -91,14 +90,6 @@ export function BotView() {
       meta={<Badge tone="accent">Beta</Badge>}
     >
       <div className="space-y-4">
-        <div role="note" className="flex items-start gap-3 rounded-xl border border-dashed border-accent bg-accent-soft px-4 py-3">
-          <IconBot className="mt-0.5 size-5 shrink-0 text-accent" />
-          <p className="min-w-0 text-sm text-pretty text-muted">
-            <span className="font-semibold text-fg">{persona.mascot} is a mascot, not a financial adviser. It measures survival, not price.</span> Quick buy is manual: nothing is traded
-            automatically, every trade is signed in your own wallet, and you can lose everything you put in.
-          </p>
-        </div>
-
         <div role="tablist" aria-label="Trade Bot" className="flex gap-1 border-b border-border">
           {TABS.map((t) => (
             <button
