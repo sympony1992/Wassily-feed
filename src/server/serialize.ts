@@ -6,6 +6,7 @@ import type { EliminatedItem, ExclusionItem, IdeaCycle, ModelRun, Token } from '
 import { confidenceLabel, vcEpsilon, type BoundDef } from '@/math/bounds';
 import type { Runtime } from './runtime';
 import { dexImageUrl } from './sources/dexImage';
+import type { SignalRow } from './trade/service';
 
 const r4 = (v: number) => Math.round(v * 1e4) / 1e4;
 
@@ -24,6 +25,16 @@ export const tokenJson = (t: Token, chain: string) => ({
   holders: t.holdersMissing ? null : t.holders,
   peak_mc: t.peakMc,
   status: t.status,
+});
+
+/** A watched token with its quick buy state; the score is the server's, from the real model. */
+export const signalJson = (row: SignalRow, chain: string) => ({
+  ...tokenJson(row.token, chain),
+  score: row.signal.score == null ? null : r4(row.signal.score),
+  state: row.signal.state,
+  blocked_by: row.signal.blockedBy,
+  gates: row.signal.gates,
+  age_hours: Math.round(row.signal.ageHours * 10) / 10,
 });
 
 export function modelJson(run: ModelRun, bound: BoundDef) {

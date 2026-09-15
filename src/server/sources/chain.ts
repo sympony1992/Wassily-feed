@@ -91,6 +91,9 @@ const HOLDERS_PARALLEL = 3;
 const HOLDER_BACKLOG_MAX = 300; // past launches wait while more holder counts than this are queued
 const LOGO_BATCH_EVERY_MS = 60_000; // logos only decorate the feed: one GeckoTerminal call a minute, queued behind labelling
 const WATCH_SCAN_MAX_BLOCKS = 5_000;
+const WATCH_MIN_LIQUIDITY_USD = 1_000; // a "watching" cap needs a pool someone could actually trade against
+const WATCH_MAX_CAP_PER_LIQUIDITY = 1_000; // past this the pair's price is not a market: fake supply, or a copy of ETH's price
+const STALE_GRACE_MS = 2 * HOUR; // a watched token this far past its label window, and no longer followed, is dropped
 const HUES = [38, 152, 268, 196, 12, 88, 320];
 // Every token from this Pons factory is minted with 18 decimals and a fixed 1B supply (30 of 30 sampled across nine days),
 // so pricing its curve trades needs no calls to the chain. Launches from any other factory are still read.
@@ -123,6 +126,7 @@ export class ChainSource {
     slowQueued: 0,
     holdersQueued: 0,
     holdersIncomplete: 0, // labelled tokens whose transfers could not be replayed in full: no holder count, left out of training
+    staleDropped: 0, // watched tokens that left the live window without a label and were taken off the feed
     logosQueued: 0,
     errors: 0,
     head: 0,
@@ -145,6 +149,7 @@ export class ChainSource {
   private readonly young = new Map<string, Candidate>();
   private readonly slowLive: Candidate[] = [];
   private readonly holderQueue: HolderJob[] = [];
+  private readonly youngHolders = new Set<string>(); // watched tokens whose 1h holder count is queued or taken
   private readonly logoQueue = new Set<string>();
   private readonly rejected = new Set<string>();
   private readonly quotes = new Set<string>([WETH, NATIVE]);
@@ -376,7 +381,9 @@ export class ChainSource {
     this.setStage('following curve trades');
     await this.scanCurveTrades(head, now);
     this.setStage('updating the watch list');
+    this.dropStale(now); // first, so lost tokens are counted and cost no DexScreener lookup
     await this.watch(now);
+    this.queueYoungHolders(now);
 
     this.stats.slowQueued = this.slowLive.length;
     this.stats.holdersQueued = this.holderQueue.length;
@@ -511,6 +518,7 @@ export class ChainSource {
       const firstPair = Math.min(...listed.map((p) => p.pairCreatedAt ?? Infinity));
       if (firstPair < c.launchedAt - OLDER_TOKEN_MS) {
         this.quotes.add(c.token); // an existing token found a new pool; it did not launch here
+        this.drop(c.token); // so it is not "watching" either
         continue;
       }
       const launchedAt = Math.min(c.launchedAt, firstPair);
@@ -522,6 +530,7 @@ export class ChainSource {
         .slice(0, 2);
       if (!pools.length) {
         this.stats.neverTraded++; // not listed anywhere: nobody traded it
+        this.drop(c.token);
         continue;
       }
 
@@ -555,6 +564,8 @@ export class ChainSource {
     const label = await this.tokenInfo.label(c.token).catch(() => null); // names only for labelled tokens
     const at = new Date(launchedAt);
     const prior = this.agent.tokens.get(c.token);
+    // A watched token already had its holder count taken at the same hour mark: it keeps it and is not replayed again.
+    const counted = prior?.status === 'pending' && (!prior.holdersMissing || prior.holdersIncomplete) ? prior : null;
     this.agent.upsert(
       {
         mint: c.token,
@@ -563,8 +574,9 @@ export class ChainSource {
         lore: prior?.lore ?? '',
         loreRaw: '', // lore cannot be observed for past launches, so no token trains on it
         loreWithheld: false,
-        holders: 0,
-        holdersMissing: true, // replayed from transfers in the background
+        holders: counted?.holders ?? 0,
+        holdersMissing: counted ? counted.holdersMissing : true, // otherwise replayed from transfers in the background
+        holdersIncomplete: counted?.holdersIncomplete,
         peakMc: Math.round(cap),
         status: cap >= SITE.targetMc ? 'passed' : 'stalled',
         hour: at.getUTCHours(),
@@ -577,7 +589,7 @@ export class ChainSource {
       announce,
     );
     this.stats.labelled++;
-    this.holderQueue.push({ token: c.token, fromBlock: Math.max(0, c.curve ? c.firstBlock : c.firstBlock - MINT_LOOKBACK), at: launchedAt + HOLDERS_AT_MS, tries: 0 });
+    if (!counted) this.holderQueue.push({ token: c.token, fromBlock: Math.max(0, c.curve ? c.firstBlock : c.firstBlock - MINT_LOOKBACK), at: launchedAt + HOLDERS_AT_MS, tries: 0 });
     if (!logo && !prior?.logo) this.logoQueue.add(c.token);
   }
   // #endregion
@@ -591,7 +603,7 @@ export class ChainSource {
           const end = Math.min(this.stats.head || this.anchor.block, this.blockFor(job.at));
           const holders = await holdersAt(this.rpc, job.token, job.fromBlock, end);
           const t = this.agent.tokens.get(job.token);
-          if (!t || t.status === 'pending') return;
+          if (!t) return; // a watched token keeps its count: scored now, and trained on once labelled
           if (holders == null) {
             // Some of its transfers happened before the replayed range: no count is better than a wrong one.
             this.agent.upsert({ ...t, holdersIncomplete: true }, false);
@@ -599,7 +611,10 @@ export class ChainSource {
           } else this.agent.upsert({ ...t, holders, holdersMissing: false, holdersIncomplete: undefined }, false);
         } catch (err) {
           if (++job.tries < 3) this.holderQueue.push(job);
-          else this.o.log?.(`chain holders ${job.token}: ${(err as Error).message}`);
+          else {
+            this.youngHolders.delete(job.token); // a watched token is queued again on a later tick
+            this.o.log?.(`chain holders ${job.token}: ${(err as Error).message}`);
+          }
         }
       }),
     );
@@ -693,18 +708,56 @@ export class ChainSource {
     const pending = [...this.agent.tokens.values()].filter((t) => t.status === 'pending' && !this.young.get(t.mint.toLowerCase())?.curve).map((t) => t.mint.toLowerCase());
     const lookup = [...new Set([...due.map((c) => c.token), ...pending])];
     if (!lookup.length) return;
-    for (const [token, listed] of await this.dexPairs(lookup)) {
-      const cap = Math.max(...listed.map((p) => p.fdv ?? p.marketCap ?? 0));
+    const pairs = await this.dexPairs(lookup);
+    for (const token of lookup) {
+      const listed = pairs.get(token) ?? [];
+      // Only pools someone could trade against price a watched token: no liquidity, or a cap that dwarfs it, is not a market.
+      const markets = listed.filter((p) => this.plausible(p));
+      const cap = markets.length ? Math.max(...markets.map((p) => p.fdv ?? p.marketCap ?? 0)) : 0;
       const existing = this.agent.tokens.get(token);
       if (existing) {
-        if (existing.status === 'pending' && cap > existing.peakMc) this.agent.upsert({ ...existing, peakMc: Math.round(cap) }, false);
+        if (existing.status !== 'pending') continue;
+        if (!markets.length) this.agent.remove(token); // off the feed; it returns if a real market appears, and its label still comes at 48h
+        else if (cap > existing.peakMc) this.agent.upsert({ ...existing, peakMc: Math.round(cap) }, false);
         continue;
       }
       const c = this.young.get(token);
       if (!c || cap < SITE.entryMc) continue;
-      const pair = listed.find((p) => p.baseToken?.name) ?? listed[0];
+      const pair = markets.find((p) => p.baseToken?.name) ?? markets[0];
       this.showPending(c, cap, pair?.baseToken?.name, pair?.baseToken?.symbol, dexImageUrl(listed.find((p) => p.info?.imageUrl)?.info?.imageUrl));
     }
+  }
+
+  private plausible(p: DexPair) {
+    const liquidity = p.liquidity?.usd ?? 0;
+    return liquidity >= WATCH_MIN_LIQUIDITY_USD && (p.fdv ?? p.marketCap ?? 0) <= WATCH_MAX_CAP_PER_LIQUIDITY * liquidity;
+  }
+
+  /**
+   * Watched tokens that left the live window without a label and are no longer followed (a restart lost them, or a
+   * lookup skipped them). They never entered the study, so they leave the feed. Public stats count them.
+   */
+  private dropStale(now: number) {
+    const followed = new Set([...this.young.keys(), ...this.slowLive.map((c) => c.token)]);
+    for (const t of [...this.agent.tokens.values()]) {
+      const key = t.mint.toLowerCase();
+      if (t.status !== 'pending' || followed.has(key) || Date.parse(t.launchedAt) + WINDOW_MS + STALE_GRACE_MS > now) continue;
+      this.agent.remove(key);
+      this.youngHolders.delete(key);
+      this.stats.staleDropped++;
+    }
+  }
+
+  /** A watched token's holder count one hour after launch, queued ahead of history so the token can be scored before its label. */
+  private queueYoungHolders(now: number) {
+    for (const c of this.young.values()) {
+      if (now - c.launchedAt < HOLDERS_AT_MS || this.youngHolders.has(c.token)) continue;
+      const t = this.agent.tokens.get(c.token);
+      if (t?.status !== 'pending' || !t.holdersMissing || t.holdersIncomplete) continue;
+      this.youngHolders.add(c.token);
+      this.holderQueue.unshift({ token: c.token, fromBlock: Math.max(0, c.curve ? c.firstBlock : c.firstBlock - MINT_LOOKBACK), at: c.launchedAt + HOLDERS_AT_MS, tries: 0 });
+    }
+    this.stats.holdersQueued = this.holderQueue.length;
   }
 
   private showPending(c: Candidate, cap: number, name: string | undefined, symbol: string | undefined, logo: string | undefined) {

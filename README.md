@@ -214,7 +214,11 @@ The **Formula Lab** (`/lab`) puts Hoeffding next to eight other bounds on the sa
 - **Console `/console`:** uptime, the cycle countdown, the learning pipeline, survival by launch hour, and lore words ranked by survival lift.
 - **Brain `/brain`:** the 100 committed ideas per cycle, in-browser sha256 verification, the generator's real source, and the revised-out and theft records.
 - **Formula Lab `/lab`:** evidence sliders, a floor-versus-n chart, and the bound comparison.
-- **Trade Bot `/bot` (coming soon):** the draft trading rules and a dry run of them on watched tokens, with a per-token analysis. No wallet, no orders.
+- **Trade Bot `/bot` (beta):** manual quick buy in three tabs.
+  - **Trade:** watched tokens with the server's score and their gates, a quick buy button only when every gate passes and the jar is at 100%, amount and slippage settings, and a public paper trading record.
+  - **Portfolio:** positions from the connected wallet's quick buys, valued with live sell quotes, with full or partial sells and exit alerts.
+  - **PnL Calendar:** realized profit and loss by day, streaks and a CSV export.
+  - Swaps route through KyberSwap and are signed in the user's own wallet; the server only builds unsigned calldata and holds no key. The automated bot is still coming soon.
 - **About `/about`:** disclaimer, methodology, `dataset.csv` and `methodology.json`.
 
 ## API

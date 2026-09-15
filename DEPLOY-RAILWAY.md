@@ -61,11 +61,17 @@ PERSONA=hoeffding
 # Opsional: riwayat yang dilabeli saat pertama jalan
 BACKFILL_DAYS=14
 BACKFILL_SAMPLE=0.5
+
+# Opsional: halaman Trade Bot (default semuanya on)
+QUICK_BUY=on
+PAPER_TRADING=on
+KYBER_CLIENT_ID=wassily
 ```
 
 Catatan:
 - `DATA_SOURCE=dexscreener` (nama lama) masih diterima dan artinya sama dengan `chain`.
 - Variabel `NEXT_PUBLIC_*` ditanam saat **build**. Setelah mengubahnya, klik **Redeploy**.
+- `QUICK_BUY=off` mematikan tombol beli di halaman Trade Bot (menjual tetap bisa). Server hanya menyusun transaksi lewat KyberSwap; wallet pengguna yang menandatangani, jadi tidak ada private key di server. `PAPER_TRADING` mencatat setiap sinyal sebagai pembelian di atas kertas ke `/data/paper.json`.
 - `BACKFILL_SAMPLE` = porsi token lama yang dicek, dipilih acak (0.5 = 50%). Token Pons dihitung langsung dari transaksi di chain sehingga cepat; token dari DEX lain lewat GeckoTerminal gratis yang lambat.
 
 ## 5. Buat domain publik

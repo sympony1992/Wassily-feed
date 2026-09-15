@@ -22,6 +22,10 @@ export interface ServerConfig {
   seedTokens: number;
   arrivalMs: [number, number];
   priorCycles: number;
+  quickBuy: boolean; // manual quick buy on the Trade Bot page; the server only builds unsigned swaps
+  paperTrading: boolean; // every active signal bought on paper and tracked with real quotes
+  kyberApi: string;
+  kyberClientId: string;
 }
 
 type Env = Record<string, string | undefined>;
@@ -54,5 +58,9 @@ export function loadConfig(env: Env = process.env): ServerConfig {
     seedTokens: Number(env.SEED_TOKENS ?? SITE.seedTokens),
     arrivalMs: arrival.length === 2 && arrival.every(Number.isFinite) ? [arrival[0], arrival[1]] : SITE.arrivalMs,
     priorCycles: SITE.priorCycles,
+    quickBuy: (env.QUICK_BUY ?? 'on') !== 'off',
+    paperTrading: (env.PAPER_TRADING ?? 'on') !== 'off',
+    kyberApi: env.KYBER_API ?? 'https://aggregator-api.kyberswap.com',
+    kyberClientId: env.KYBER_CLIENT_ID ?? 'wassily',
   };
 }

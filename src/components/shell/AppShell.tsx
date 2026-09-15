@@ -18,7 +18,7 @@ const NAV = [
   { href: '/console', label: 'Console', Icon: IconTerminal },
   { href: '/brain', label: 'Brain', Icon: IconSparkles },
   { href: '/lab', label: 'Formula Lab', Icon: IconFlask },
-  { href: '/bot', label: 'Trade Bot', Icon: IconBot, soon: true },
+  { href: '/bot', label: 'Trade Bot', Icon: IconBot, badge: 'Beta' },
   { href: '/about', label: 'About', Icon: IconInfo },
 ];
 
@@ -56,7 +56,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       <Brand />
 
       <nav aria-label="Primary" className="flex flex-col gap-0.5">
-        {NAV.map(({ href, label, Icon, soon }) => {
+        {NAV.map(({ href, label, Icon, badge }) => {
           const active = href === '/' ? pathname === '/' : pathname.startsWith(href);
           return (
             <Link
@@ -71,9 +71,9 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             >
               <Icon className="size-4" />
               {label}
-              {soon && (
+              {badge && (
                 <Badge tone="accent" className="ml-auto">
-                  Soon
+                  {badge}
                 </Badge>
               )}
             </Link>

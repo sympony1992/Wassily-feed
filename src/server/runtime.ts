@@ -6,6 +6,9 @@ import { loadConfig, type ServerConfig } from './config';
 import { Persistence } from './persist';
 import { ChainSource, type BackfillProgress } from './sources/chain';
 import { startSimulatedSource } from './sources/simulated';
+import { KyberClient } from './trade/kyber';
+import { PaperTrader } from './trade/paper';
+import { TradeService } from './trade/service';
 
 export interface Runtime {
   agent: Agent;
@@ -15,6 +18,8 @@ export interface Runtime {
   generator: { source: string; sha: string };
   ingestStats: () => unknown;
   backfill: () => BackfillProgress | null;
+  trade: TradeService;
+  paper: PaperTrader | null;
   stop: () => void;
 }
 
@@ -66,10 +71,20 @@ export function getRuntime(overrides: Partial<ServerConfig> = {}): Runtime {
   }
   agent.start();
 
+  // Quick buy prices routes and builds unsigned swaps for the user's wallet; paper trading tracks every active signal.
+  const kyber = new KyberClient({ api: config.kyberApi, chain: config.chain, clientId: config.kyberClientId });
+  const trade = new TradeService(agent, { live: config.source === 'chain', enabled: config.quickBuy, kyber, geckoApi: config.geckoApi, network: config.chain });
+  const paper =
+    config.source === 'chain' && config.paperTrading ? new PaperTrader(trade, kyber, { file: store ? path.join(config.dataDir, 'paper.json') : null, log }) : null;
+  paper?.start();
+
   const save = () => store?.save(agent.snapshot());
   const saveTimer = store ? setInterval(save, 30_000) : null;
   saveTimer?.unref();
-  const onExit = () => save();
+  const onExit = () => {
+    save();
+    paper?.stop();
+  };
   process.once('SIGTERM', onExit);
   process.once('SIGINT', onExit);
 
@@ -81,9 +96,12 @@ export function getRuntime(overrides: Partial<ServerConfig> = {}): Runtime {
     generator,
     ingestStats,
     backfill,
+    trade,
+    paper,
     stop: () => {
       stopSource();
       agent.stop();
+      paper?.stop();
       if (saveTimer) clearInterval(saveTimer);
       save();
       process.off('SIGTERM', onExit);

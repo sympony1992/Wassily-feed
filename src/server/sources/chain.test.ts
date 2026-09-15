@@ -26,6 +26,9 @@ const O = '0x4000000000000000000000000000000000000004'; // an old token opening 
 const Z = '0x5000000000000000000000000000000000000005'; // young DEX launch, watched then labelled
 const POOL_Z = '0x5000000000000000000000000000000000000d05';
 const W = '0x6000000000000000000000000000000000000006'; // labelled token whose transfer history starts after its mint
+const Q = '0x7000000000000000000000000000000000000007'; // young DEX launch whose only "market" is a pair with no liquidity
+const POOL_Q = '0x7000000000000000000000000000000000000d07';
+const G = '0x8000000000000000000000000000000000000008'; // a watched token a restart lost, long past its window
 const A = '0xa00000000000000000000000000000000000000a';
 const B = '0xb00000000000000000000000000000000000000b';
 const C = '0xc00000000000000000000000000000000000000c'; // buys X after its first hour
@@ -34,7 +37,7 @@ function world(stateFile: string | null = null) {
   const clock = { head: 1_000_000, headS: 1_789_000_000 };
   const ts = (block: number) => clock.headS - (clock.head - block); // one block per second
   const edge = clock.head - 48 * HOUR_S; // 48h ago at the first start
-  const blocks = { x: edge - 20_000, y: edge - 40_000, s: edge - 50_000, o: edge - 10_000, z: clock.head - 10 * HOUR_S };
+  const blocks = { x: edge - 20_000, y: edge - 40_000, s: edge - 50_000, o: edge - 10_000, z: clock.head - 10 * HOUR_S, q: clock.head - 5 * HOUR_S };
   const ms = (block: number) => ts(block) * 1000;
   const trade = (quoteWei: bigint, tokenWei: bigint) => `0x${pad(hex(quoteWei))}${pad(hex(tokenWei))}${pad('0x0')}${pad('0x0')}`;
 
@@ -44,6 +47,7 @@ function world(stateFile: string | null = null) {
     { blockNumber: hex(blocks.s), topics: [TOPICS.v4Initialize, `0x${'5'.repeat(64)}`, topic(NATIVE), topic(S)], data: `0x${pad('0x0')}` },
     { blockNumber: hex(blocks.o), topics: [TOPICS.v2PairCreated, topic(O), topic(WETH)], data: `0x${pad('0x4000000000000000000000000000000000000d04')}${pad('0x2')}` },
     { blockNumber: hex(blocks.z), topics: [TOPICS.v2PairCreated, topic(Z), topic(WETH)], data: `0x${pad(POOL_Z)}${pad('0x3')}` },
+    { blockNumber: hex(blocks.q), topics: [TOPICS.v2PairCreated, topic(Q), topic(WETH)], data: `0x${pad(POOL_Q)}${pad('0x4')}` },
     // Curve trades: 0.02 WETH for a million X is $0.00005 a token at $2,500 ETH, $50K on a billion supply
     { address: CURVE_X, blockNumber: hex(blocks.x + 3), topics: [TOPICS.ponsTrade, topic(A), topic(A)], data: trade(10n ** 15n, 10n ** 24n) },
     { address: CURVE_X, blockNumber: hex(blocks.x + 7), topics: [TOPICS.ponsTrade, topic(B), topic(B)], data: trade(2n * 10n ** 16n, 10n ** 24n) },
@@ -53,6 +57,9 @@ function world(stateFile: string | null = null) {
     { address: X, blockNumber: hex(blocks.x + 5), topics: [TOPICS.transfer, topic(CURVE_X), topic(A)], data: `0x${pad(hex(10n ** 24n))}` },
     { address: X, blockNumber: hex(blocks.x + 9), topics: [TOPICS.transfer, topic(CURVE_X), topic(B)], data: `0x${pad(hex(10n ** 24n))}` },
     { address: X, blockNumber: hex(blocks.x + 2 * HOUR_S), topics: [TOPICS.transfer, topic(CURVE_X), topic(C)], data: `0x${pad(hex(10n ** 24n))}` }, // after the first hour: not counted
+    // Z transfers: supply minted to its pool, one buyer inside the first hour
+    { address: Z, blockNumber: hex(blocks.z), topics: [TOPICS.transfer, topic(NATIVE), topic(POOL_Z)], data: `0x${pad(hex(10n ** 27n))}` },
+    { address: Z, blockNumber: hex(blocks.z + 10), topics: [TOPICS.transfer, topic(POOL_Z), topic(A)], data: `0x${pad(hex(10n ** 24n))}` },
     // W: A sends tokens it received before any block the replay reads, so W's history is incomplete
     { address: W, blockNumber: hex(clock.head - 60 * HOUR_S + 10), topics: [TOPICS.transfer, topic(A), topic(B)], data: `0x${pad(hex(10n ** 20n))}` },
   ].map((l) => ({ address: '0xfactory', transactionHash: '0x', logIndex: '0x0', ...l }));
@@ -62,6 +69,8 @@ function world(stateFile: string | null = null) {
     [Y]: [{ pairAddress: POOL_Y, pairCreatedAt: ms(blocks.y), liquidity: { usd: 800 }, fdv: 2_000, baseToken: { address: Y, name: 'Quiet', symbol: 'QT' } }],
     [O]: [{ pairAddress: '0xold', pairCreatedAt: ms(blocks.o) - 30 * 24 * 3_600_000, baseToken: { address: O, name: 'Old', symbol: 'OLD' } }],
     [Z]: [{ pairAddress: POOL_Z, pairCreatedAt: ms(blocks.z), liquidity: { usd: 5000 }, fdv: 12_000, baseToken: { address: Z, name: 'Young Heron', symbol: 'YHRN' } }],
+    // A copy of ETH's price on a pair with no liquidity: trillions "market cap", no market.
+    [Q]: [{ pairAddress: POOL_Q, pairCreatedAt: ms(blocks.q), fdv: 23_678_265_704_754, baseToken: { address: Q, name: 'mmETH', symbol: 'mmETH' } }],
   };
   const highs: Record<string, [number, number]> = {
     [POOL_Y]: [ts(blocks.y) + 2 * HOUR_S, 0.000005], // $5K
@@ -173,6 +182,35 @@ describe('Chain source (mocked chain, DexScreener and GeckoTerminal)', () => {
     expect(agent.warmup()).toMatchObject({ labelled: 2, pending: 0 });
   });
 
+  it('counts a watched token’s holders one hour after launch, and keeps that count when the label comes', async () => {
+    const { clock, agent, source } = world();
+    await source.init();
+    await source.liveTick();
+    expect(agent.tokens.get(Z)).toMatchObject({ status: 'pending', holdersMissing: true });
+    await source.drainHolders();
+    expect(agent.tokens.get(Z)).toMatchObject({ status: 'pending', holders: 2, holdersMissing: false }); // its pool and A, ready to be scored
+
+    clock.head += 40 * HOUR_S;
+    clock.headS += 40 * HOUR_S;
+    await source.liveTick();
+    await source.labelQueued();
+    expect(agent.tokens.get(Z)).toMatchObject({ status: 'stalled', holders: 2, holdersMissing: false });
+    expect(source.stats.holdersQueued).toBe(0); // not replayed a second time
+  });
+
+  it('takes watched tokens off the feed when they left the live window, and never watches a pair that is not a market', async () => {
+    const { clock, agent, source } = world();
+    await source.init();
+    const lostAt = new Date((clock.headS - 60 * HOUR_S) * 1000).toISOString();
+    agent.upsert({ mint: G, name: 'Lost', symbol: 'LOST', lore: '', loreWithheld: false, holders: 0, holdersMissing: true, peakMc: 15_000, status: 'pending', hour: 0, dow: 0, launchedAt: lostAt, deployer: '', hue: 38 }, false);
+
+    await source.liveTick();
+    expect(agent.tokens.has(G)).toBe(false);
+    expect(source.stats.staleDropped).toBe(1);
+    expect(agent.tokens.has(Q)).toBe(false); // $23.7T "cap" on a pair with no liquidity
+    expect(agent.tokens.get(Z)).toMatchObject({ status: 'pending' }); // a real market is still watched
+  });
+
   it('retries a step when prices are unavailable instead of rejecting tokens', async () => {
     const { agent, source } = world();
     await source.init();
@@ -279,7 +317,8 @@ describe('Chain source (mocked chain, DexScreener and GeckoTerminal)', () => {
 
   it('still accepts DATA_SOURCE=dexscreener as the live source', () => {
     expect(loadConfig({ DATA_SOURCE: 'dexscreener' }).source).toBe('chain');
-    expect(loadConfig({ DATA_SOURCE: 'chain' })).toMatchObject({ source: 'chain', backfillDays: 14, persist: true });
+    expect(loadConfig({ DATA_SOURCE: 'chain' })).toMatchObject({ source: 'chain', backfillDays: 14, persist: true, quickBuy: true, paperTrading: true });
+    expect(loadConfig({ DATA_SOURCE: 'chain', QUICK_BUY: 'off', PAPER_TRADING: 'off' })).toMatchObject({ quickBuy: false, paperTrading: false });
     expect(loadConfig({}).source).toBe('simulated');
   });
 });
